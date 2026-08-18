@@ -7,6 +7,11 @@ import {
   Square,
   Circle,
   Triangle,
+  Star,
+  Hexagon,
+  Diamond,
+  ArrowRight,
+  FileImage,
   Type,
   PenTool,
   ChevronDown,
@@ -23,10 +28,10 @@ import {
 import { useCanvas } from '../context/CanvasContext';
 import { DEVICE_PRESETS } from '../data/presets';
 
-type ShapeTool = 'rectangle' | 'ellipse' | 'triangle';
+type ShapeTool = 'rectangle' | 'ellipse' | 'triangle' | 'polygon' | 'diamond' | 'star';
 
 const LAST_SHAPE_TOOL_KEY = 'figmint_last_shape_tool';
-const SHAPE_TOOLS: ShapeTool[] = ['rectangle', 'ellipse', 'triangle'];
+const SHAPE_TOOLS: ShapeTool[] = ['rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star'];
 
 const isShapeTool = (tool: string): tool is ShapeTool => SHAPE_TOOLS.includes(tool as ShapeTool);
 
@@ -46,6 +51,7 @@ export const FloatingBottomToolbar: React.FC = () => {
     rulerVisible,
     setRulerVisible,
     setActiveLeftTab,
+    importMediaFiles,
   } = useCanvas();
 
   const [openDropdown, setOpenDropdown] = useState<'move' | 'frame' | 'shape' | 'pen' | 'text' | 'resources' | null>(null);
@@ -61,6 +67,7 @@ export const FloatingBottomToolbar: React.FC = () => {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const frameDropdownButtonRef = useRef<HTMLButtonElement>(null);
   const shapeDropdownButtonRef = useRef<HTMLButtonElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -101,7 +108,7 @@ export const FloatingBottomToolbar: React.FC = () => {
       const button = isFrameDropdown ? frameDropdownButtonRef.current : shapeDropdownButtonRef.current;
       if (!button) return;
       const rect = button.getBoundingClientRect();
-      const menuWidth = isFrameDropdown ? 288 : 176;
+      const menuWidth = isFrameDropdown ? 288 : 224;
       setDropdownPosition({
         left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)),
         bottom: window.innerHeight - rect.top + 8,
@@ -117,6 +124,19 @@ export const FloatingBottomToolbar: React.FC = () => {
     };
   }, [openDropdown]);
 
+  useEffect(() => {
+    const handleMediaShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        mediaInputRef.current?.click();
+      }
+    };
+    window.addEventListener('keydown', handleMediaShortcut);
+    return () => window.removeEventListener('keydown', handleMediaShortcut);
+  }, []);
+
   const mobilePresets = DEVICE_PRESETS.filter((p) => p.category === 'mobile');
   const desktopPresets = DEVICE_PRESETS.filter((p) => p.category === 'desktop');
   const socialPresets = DEVICE_PRESETS.filter((p) => p.category === 'social');
@@ -127,6 +147,12 @@ export const FloatingBottomToolbar: React.FC = () => {
         return <Circle size={17} />;
       case 'triangle':
         return <Triangle size={17} />;
+      case 'polygon':
+        return <Hexagon size={17} />;
+      case 'diamond':
+        return <Diamond size={17} />;
+      case 'star':
+        return <Star size={17} />;
       case 'rectangle':
       default:
         return <Square size={17} />;
@@ -249,7 +275,7 @@ export const FloatingBottomToolbar: React.FC = () => {
               }}
               title="Shape Tool (R)"
               className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                ['rectangle', 'ellipse', 'triangle'].includes(activeTool)
+                SHAPE_TOOLS.includes(activeTool as ShapeTool)
                   ? 'bg-[#0d99ff] text-white shadow-sm'
                   : 'text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111]'
               }`}
@@ -280,7 +306,7 @@ export const FloatingBottomToolbar: React.FC = () => {
               }}
               title="Line Tool (L)"
               className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                activeTool === 'line'
+                activeTool === 'line' || activeTool === 'arrow'
                   ? 'bg-[#0d99ff] text-white shadow-sm'
                   : 'text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111]'
               }`}
@@ -291,7 +317,7 @@ export const FloatingBottomToolbar: React.FC = () => {
               onClick={() => setOpenDropdown(openDropdown === 'pen' ? null : 'pen')}
               aria-label="Choose line tool"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
-                activeTool === 'line' ? 'text-white/80 hover:text-white' : ''
+                activeTool === 'line' || activeTool === 'arrow' ? 'text-white/80 hover:text-white' : ''
               }`}
             >
               <ChevronDown size={12} />
@@ -312,6 +338,19 @@ export const FloatingBottomToolbar: React.FC = () => {
                   <span className="font-medium">Line / Vector</span>
                 </div>
                 <span className="text-[10px] text-gray-400 font-mono">L</span>
+              </button>
+              <button
+                onClick={() => {
+                  setTool('arrow');
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <ArrowRight size={14} />
+                  <span className="font-medium">Arrow</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">Shift+L</span>
               </button>
             </div>
           )}
@@ -517,7 +556,7 @@ export const FloatingBottomToolbar: React.FC = () => {
           data-toolbar-dropdown
           role="menu"
           aria-label="Shape tools"
-          className="fixed w-44 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-[60] text-xs text-[#222222]"
+          className="fixed w-56 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-[60] text-xs text-[#222222]"
           style={dropdownPosition}
         >
           <button
@@ -562,9 +601,75 @@ export const FloatingBottomToolbar: React.FC = () => {
             </div>
             <span className="text-[10px] text-gray-400 font-mono">—</span>
           </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('polygon');
+              setOpenDropdown(null);
+            }}
+            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Hexagon size={14} />
+              <span className="font-medium">Polygon</span>
+            </div>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('diamond');
+              setOpenDropdown(null);
+            }}
+            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Diamond size={14} />
+              <span className="font-medium">Diamond</span>
+            </div>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('star');
+              setOpenDropdown(null);
+            }}
+            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Star size={14} />
+              <span className="font-medium">Star</span>
+            </div>
+          </button>
+          <div className="my-1 h-px bg-[#e2e8f0]" />
+          <button
+            role="menuitem"
+            onClick={() => {
+              mediaInputRef.current?.click();
+              setOpenDropdown(null);
+            }}
+            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <FileImage size={14} />
+              <span className="font-medium">Image / video</span>
+            </div>
+            <span className="text-[10px] text-gray-400 font-mono">Ctrl+Shift+K</span>
+          </button>
         </div>,
         document.body
       )}
+      <input
+        ref={mediaInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          const files = Array.from(event.target.files || []);
+          if (files.length > 0) void importMediaFiles(files);
+          event.target.value = '';
+        }}
+      />
     </div>
   );
 };

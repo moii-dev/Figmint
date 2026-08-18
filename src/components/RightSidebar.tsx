@@ -173,11 +173,23 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
       case 'ellipse':
         return 'Ellipse';
       case 'triangle':
+        return 'Triangle';
+      case 'polygon':
         return 'Polygon';
+      case 'diamond':
+        return 'Diamond';
+      case 'star':
+        return 'Star';
       case 'text':
         return 'Text';
       case 'line':
         return 'Line';
+      case 'arrow':
+        return 'Arrow';
+      case 'image':
+        return 'Image';
+      case 'video':
+        return 'Video';
       default:
         return 'Layer';
     }

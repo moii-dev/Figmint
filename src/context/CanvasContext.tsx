@@ -37,7 +37,97 @@ import {
 
 const STORAGE_KEY = 'figma_clone_projects_v3';
 const ACTIVE_PROJ_KEY = 'figma_clone_active_proj_id_v3';
-const IMPORTABLE_TYPES = new Set(['frame', 'rectangle', 'ellipse', 'triangle', 'star', 'text', 'line']);
+const IMPORTABLE_TYPES = new Set([
+  'frame',
+  'rectangle',
+  'ellipse',
+  'triangle',
+  'polygon',
+  'diamond',
+  'star',
+  'text',
+  'line',
+  'arrow',
+  'image',
+  'video',
+]);
+const CLIPBOARD_PREFIX = 'FIGMINT_ELEMENTS:';
+
+interface ClipboardPayload {
+  version: 1;
+  elements: CanvasElement[];
+  topLevelIds: string[];
+}
+
+function createElementId(type: CanvasElement['type']): string {
+  return `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function cloneElementTree(
+  source: CanvasElement[],
+  topLevelIds: string[],
+  existing: CanvasElement[],
+  offset = 20
+): { elements: CanvasElement[]; selectedIds: string[] } {
+  const sourceIds = new Set(source.map((element) => element.id));
+  const idMap = new Map(source.map((element) => [element.id, createElementId(element.type)]));
+  const topLevelSet = new Set(topLevelIds);
+  const existingIds = new Set(existing.map((element) => element.id));
+
+  const cloned = source.map((element) => {
+    const mappedParentId = element.parentId && idMap.get(element.parentId);
+    const parentId = mappedParentId || (element.parentId && existingIds.has(element.parentId) ? element.parentId : null);
+    const shouldOffset = topLevelSet.has(element.id) || !element.parentId || !sourceIds.has(element.parentId);
+
+    return {
+      ...element,
+      id: idMap.get(element.id)!,
+      name: topLevelSet.has(element.id) ? `${element.name} (Copy)` : element.name,
+      parentId,
+      x: shouldOffset ? element.x + offset : element.x,
+      y: shouldOffset ? element.y + offset : element.y,
+    };
+  });
+
+  return {
+    elements: cloned,
+    selectedIds: topLevelIds.flatMap((id) => (idMap.has(id) ? [idMap.get(id)!] : [])),
+  };
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function getMediaDimensions(src: string, type: 'image' | 'video'): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const media = type === 'image' ? new Image() : document.createElement('video');
+    const finish = (width: number, height: number) => {
+      const safeWidth = Math.max(1, width || 320);
+      const safeHeight = Math.max(1, height || 240);
+      const scale = Math.min(1, 640 / safeWidth, 480 / safeHeight);
+      resolve({ width: Math.round(safeWidth * scale), height: Math.round(safeHeight * scale) });
+    };
+
+    if (type === 'image') {
+      const image = media as HTMLImageElement;
+      image.onload = () => finish(image.naturalWidth, image.naturalHeight);
+      image.onerror = () => finish(320, 240);
+      image.src = src;
+    } else {
+      const video = media as HTMLVideoElement;
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => finish(video.videoWidth, video.videoHeight);
+      video.onerror = () => finish(480, 270);
+      video.src = src;
+    }
+  });
+}
 
 function normalizeImportedGradients(value: unknown): LinearGradientFill[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -188,6 +278,9 @@ interface CanvasContextType {
   updateElements: (updates: { id: string; changes: Partial<CanvasElement> }[], recordHistory?: boolean) => void;
   deleteSelected: () => void;
   duplicateSelected: () => void;
+  copySelected: () => void;
+  pasteCopied: (serializedPayload?: string) => boolean;
+  importMediaFiles: (files: File[], position?: Point) => Promise<void>;
   reorderElement: (id: string, targetIndex: number) => void;
   reparentLayer: (elementId: string, newParentId: string | null, targetIndex?: number) => void;
   bringToFront: () => void;
@@ -271,6 +364,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [collapsedFrames, setCollapsedFrames] = useState<Record<string, boolean>>({});
   const viewportSizeRef = useRef({ width: 900, height: 700 });
   const persistenceRef = useRef({ projects, currentProjectId, elements, zoom, pan });
+  const clipboardRef = useRef<ClipboardPayload | null>(null);
   persistenceRef.current = { projects, currentProjectId, elements, zoom, pan };
 
   // History stack
@@ -661,46 +755,59 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const duplicateSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
-    const newSelectedIds: string[] = [];
-
     setElements((prev) => {
-      const selected = prev.filter((el) => selectedIds.includes(el.id));
-      const duplicates: CanvasElement[] = [];
-
-      selected.forEach((el) => {
-        const newId = `${el.type}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        newSelectedIds.push(newId);
-
-        // If it's a frame, also duplicate all its children with new parentId
-        const newEl: CanvasElement = {
-          ...el,
-          id: newId,
-          name: `${el.name} (Copy)`,
-          x: el.x + 20,
-          y: el.y + 20,
-        };
-        duplicates.push(newEl);
-
-        if (el.type === 'frame') {
-          const children = prev.filter((c) => c.parentId === el.id);
-          children.forEach((c) => {
-            const childId = `${c.type}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            duplicates.push({
-              ...c,
-              id: childId,
-              parentId: newId,
-            });
-          });
-        }
-      });
-
-      const next = [...prev, ...duplicates];
+      const topLevelIds = getTopLevelSelectionIds(selectedIds, prev);
+      const copyIds = new Set(topLevelIds);
+      topLevelIds.forEach((id) => getAllDescendantIds(id, prev).forEach((childId) => copyIds.add(childId)));
+      const source = prev.filter((element) => copyIds.has(element.id));
+      const cloned = cloneElementTree(source, topLevelIds, prev);
+      const next = [...prev, ...cloned.elements];
       pushHistory(next);
+      setSelectedIds(cloned.selectedIds);
       return next;
     });
-
-    setSelectedIds(newSelectedIds);
   }, [selectedIds, pushHistory]);
+
+  const copySelected = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const topLevelIds = getTopLevelSelectionIds(selectedIds, elements);
+    const copyIds = new Set(topLevelIds);
+    topLevelIds.forEach((id) => getAllDescendantIds(id, elements).forEach((childId) => copyIds.add(childId)));
+    const payload: ClipboardPayload = {
+      version: 1,
+      elements: elements.filter((element) => copyIds.has(element.id)),
+      topLevelIds,
+    };
+    clipboardRef.current = payload;
+    void navigator.clipboard?.writeText(`${CLIPBOARD_PREFIX}${JSON.stringify(payload)}`).catch(() => undefined);
+  }, [elements, selectedIds]);
+
+  const pasteCopied = useCallback((serializedPayload?: string): boolean => {
+    let payload = clipboardRef.current;
+    if (serializedPayload?.startsWith(CLIPBOARD_PREFIX)) {
+      try {
+        const parsed = JSON.parse(serializedPayload.slice(CLIPBOARD_PREFIX.length)) as ClipboardPayload;
+        if (parsed?.version === 1 && Array.isArray(parsed.elements) && Array.isArray(parsed.topLevelIds)) {
+          payload = parsed;
+        }
+      } catch {
+        return false;
+      }
+    } else if (serializedPayload) {
+      return false;
+    }
+    if (!payload?.elements.length) return false;
+
+    setElements((prev) => {
+      const cloned = cloneElementTree(payload!.elements, payload!.topLevelIds, prev, 24);
+      const next = [...prev, ...cloned.elements];
+      pushHistory(next);
+      setSelectedIds(cloned.selectedIds);
+      return next;
+    });
+    clipboardRef.current = payload;
+    return true;
+  }, [pushHistory]);
 
   const reorderElement = useCallback(
     (id: string, targetIndex: number) => {
@@ -1009,6 +1116,22 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       } else if (type === 'triangle') {
         fill = '#f59e0b';
         stroke = '#d97706';
+      } else if (type === 'polygon') {
+        fill = '#8b5cf6';
+        stroke = '#7c3aed';
+        name = 'Polygon';
+      } else if (type === 'diamond') {
+        fill = '#06b6d4';
+        stroke = '#0891b2';
+        name = 'Diamond';
+      } else if (type === 'star') {
+        fill = '#f97316';
+        stroke = '#ea580c';
+        name = 'Star';
+      } else if (type === 'arrow') {
+        fill = '#334155';
+        stroke = '#334155';
+        name = 'Arrow';
       } else if (type === 'text') {
         fill = '#0f172a';
         stroke = '#000000';
@@ -1045,6 +1168,61 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     []
   );
+
+  const importMediaFiles = useCallback(async (files: File[], position?: Point) => {
+    const supported = files.filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
+    if (supported.length === 0) return;
+
+    const basePoint = position || {
+      x: (viewportSizeRef.current.width / 2 - pan.x) / zoom,
+      y: (viewportSizeRef.current.height / 2 - pan.y) / zoom,
+    };
+    const created = await Promise.all(supported.map(async (file, index) => {
+      const type: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image';
+      const mediaSrc = await fileToDataUrl(file);
+      const size = await getMediaDimensions(mediaSrc, type);
+      const worldPoint = { x: basePoint.x + index * 28, y: basePoint.y + index * 28 };
+      const parentFrame = findFrameAtPoint(worldPoint, elements);
+      const localPoint = parentFrame
+        ? worldToLocalPosition(worldPoint, parentFrame.id, elements)
+        : worldPoint;
+
+      return {
+        id: createElementId(type),
+        name: file.name || (type === 'image' ? 'Pasted image' : 'Video'),
+        type,
+        x: localPoint.x - size.width / 2,
+        y: localPoint.y - size.height / 2,
+        width: size.width,
+        height: size.height,
+        rotation: 0,
+        fill: '#e2e8f0',
+        fillOpacity: 1,
+        stroke: '#94a3b8',
+        strokeWidth: 0,
+        strokeOpacity: 1,
+        strokeStyle: 'solid' as const,
+        strokeAlign: 'inside' as const,
+        cornerRadius: 8,
+        opacity: 1,
+        visible: true,
+        locked: false,
+        parentId: parentFrame?.id || null,
+        mediaSrc,
+        mediaMimeType: file.type,
+        mediaName: file.name,
+        objectFit: 'cover' as const,
+      } satisfies CanvasElement;
+    }));
+
+    setElements((prev) => {
+      const next = [...prev, ...created];
+      pushHistory(next);
+      return next;
+    });
+    setSelectedIds(created.map((element) => element.id));
+    setActiveTool('select');
+  }, [elements, pan.x, pan.y, pushHistory, zoom]);
 
   const undo = useCallback(() => {
     if (historyIndexRef.current > 0) {
@@ -1165,6 +1343,15 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        copySelected();
+        return;
+      }
+
+      // Paste is handled by the ClipboardEvent listener below so image files are available.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') return;
+
       // Delete
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
@@ -1231,7 +1418,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setActiveTool('text');
           break;
         case 'l':
-          setActiveTool('line');
+          setActiveTool(e.shiftKey ? 'arrow' : 'line');
           break;
         case 'escape':
           setSelectedIds([]);
@@ -1243,7 +1430,35 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, duplicateSelected, deleteSelected, selectedIds, pushHistory, setTool, zoomToFit, zoomReset]);
+  }, [undo, redo, duplicateSelected, copySelected, deleteSelected, selectedIds, pushHistory, setTool, zoomToFit, zoomReset]);
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
+
+      const itemFiles = Array.from<DataTransferItem>(event.clipboardData?.items || [])
+        .flatMap((item) => {
+          const file = item.kind === 'file' ? item.getAsFile() : null;
+          return file ? [file] : [];
+        });
+      const files = (itemFiles.length > 0
+        ? itemFiles
+        : Array.from<File>(event.clipboardData?.files || [])
+      ).filter((file) => file.type.startsWith('image/'));
+      if (files.length > 0) {
+        event.preventDefault();
+        void importMediaFiles(files);
+        return;
+      }
+
+      const text = event.clipboardData?.getData('text/plain') || '';
+      if (pasteCopied(text || undefined)) event.preventDefault();
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [importMediaFiles, pasteCopied]);
 
   return (
     <CanvasContext.Provider
@@ -1301,6 +1516,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateElements,
         deleteSelected,
         duplicateSelected,
+        copySelected,
+        pasteCopied,
+        importMediaFiles,
         reorderElement,
         reparentLayer,
         finishInteraction,

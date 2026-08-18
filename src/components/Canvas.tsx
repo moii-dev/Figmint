@@ -8,6 +8,8 @@ import { SvgGradientDefs } from './SvgGradientDefs';
 import {
   getTrianglePoints,
   getStarPoints,
+  getPolygonPoints,
+  getDiamondPoints,
   calculateSnapping,
   getMarqueeSelectionIds,
   hexToRgba,
@@ -116,6 +118,7 @@ export const Canvas: React.FC = () => {
     updateElements,
     addElement,
     createShapeAt,
+    importMediaFiles,
     finishInteraction,
   } = useCanvas();
 
@@ -226,6 +229,16 @@ export const Canvas: React.FC = () => {
     },
     [screenToWorld, setZoom, setPan, rulerOffset]
   );
+
+  const handleFileDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    const files = Array.from<File>(event.dataTransfer.files).filter(
+      (file) => file.type.startsWith('image/') || file.type.startsWith('video/')
+    );
+    if (files.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void importMediaFiles(files, screenToWorld(event.clientX, event.clientY));
+  }, [importMediaFiles, screenToWorld]);
 
   const handleWheelRef = useRef(handleWheel);
 
@@ -568,7 +581,7 @@ export const Canvas: React.FC = () => {
 
   const getCanvasCursor = () => {
     if (isSpacePressed || activeTool === 'hand') return dragState?.type === 'pan' ? 'grabbing' : 'grab';
-    if (['rectangle', 'ellipse', 'triangle', 'frame', 'line'].includes(activeTool))
+    if (['rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'frame', 'line', 'arrow'].includes(activeTool))
       return 'crosshair';
     if (activeTool === 'text') return 'text';
     return 'default';
@@ -690,6 +703,60 @@ export const Canvas: React.FC = () => {
       );
     }
 
+    if (el.type === 'polygon' || el.type === 'diamond') {
+      const points = el.type === 'polygon'
+        ? getPolygonPoints(el.width, el.height)
+        : getDiamondPoints(el.width, el.height);
+      return (
+        <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+          <SvgGradientDefs element={el} prefix="canvas" />
+          <polygon points={points} fill={fillStyle} stroke="none" />
+          {svgGradients.map((gradient) => (
+            <polygon
+              key={gradient.id}
+              points={points}
+              fill={`url(#${getSvgGradientId('canvas', el.id, gradient.id)})`}
+              opacity={gradient.opacity}
+              stroke="none"
+            />
+          ))}
+          <polygon
+            points={points}
+            fill="none"
+            stroke={strokeStyle}
+            strokeWidth={el.strokeWidth}
+            strokeDasharray={strokeDash}
+          />
+        </svg>
+      );
+    }
+
+    if (el.type === 'image') {
+      return (
+        <img
+          src={el.mediaSrc}
+          alt={el.mediaName || el.name}
+          draggable={false}
+          className="pointer-events-none h-full w-full select-none"
+          style={{ objectFit: el.objectFit || 'cover', borderRadius: `${el.cornerRadius || 0}px` }}
+        />
+      );
+    }
+
+    if (el.type === 'video') {
+      return (
+        <video
+          src={el.mediaSrc}
+          aria-label={el.mediaName || el.name}
+          muted
+          playsInline
+          preload="metadata"
+          className="pointer-events-none h-full w-full bg-black"
+          style={{ objectFit: el.objectFit || 'cover', borderRadius: `${el.cornerRadius || 0}px` }}
+        />
+      );
+    }
+
     if (el.type === 'text') {
       const isEditing = editingTextId === el.id;
       return (
@@ -787,6 +854,22 @@ export const Canvas: React.FC = () => {
               opacity={gradient.opacity}
             />
           ))}
+        </svg>
+      );
+    }
+
+    if (el.type === 'arrow') {
+      const color = el.strokeWidth > 0 ? strokeStyle : fillStyle;
+      const width = Math.max(2, el.strokeWidth || 3);
+      const headSize = Math.max(10, Math.min(24, el.height * 0.45));
+      const midY = el.height / 2;
+      return (
+        <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+          <line x1="0" y1={midY} x2={Math.max(0, el.width - headSize)} y2={midY} stroke={color} strokeWidth={width} strokeDasharray={strokeDash} />
+          <polygon
+            points={`${Math.max(0, el.width - headSize)},${midY - headSize / 2} ${el.width},${midY} ${Math.max(0, el.width - headSize)},${midY + headSize / 2}`}
+            fill={color}
+          />
         </svg>
       );
     }
@@ -996,6 +1079,10 @@ export const Canvas: React.FC = () => {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
+      onDragOver={(event) => {
+        if (Array.from<DataTransferItem>(event.dataTransfer.items).some((item) => item.kind === 'file')) event.preventDefault();
+      }}
+      onDrop={handleFileDrop}
       className="relative flex-1 min-w-0 h-full overflow-hidden select-none bg-[#f5f5f5]"
       style={{ cursor: getCanvasCursor(), touchAction: 'none' }}
     >

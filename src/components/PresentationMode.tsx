@@ -2,7 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { X, ChevronLeft, ChevronRight, Smartphone } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement } from '../types/figma';
-import { hexToRgba, getStarPoints, getTrianglePoints } from '../utils/geometry';
+import {
+  hexToRgba,
+  getStarPoints,
+  getTrianglePoints,
+  getPolygonPoints,
+  getDiamondPoints,
+} from '../utils/geometry';
 import { SvgGradientDefs } from './SvgGradientDefs';
 import {
   getElementCssFill,
@@ -77,7 +83,7 @@ export const PresentationMode: React.FC = () => {
     return (
       <div
         key={el.id}
-        className="absolute select-none pointer-events-none"
+        className={`absolute select-none ${el.type === 'video' ? 'pointer-events-auto' : 'pointer-events-none'}`}
         style={{
           left: `${relX}px`,
           top: `${relY}px`,
@@ -166,6 +172,54 @@ export const PresentationMode: React.FC = () => {
           </svg>
         )}
 
+        {(el.type === 'polygon' || el.type === 'diamond') && (
+          <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+            <SvgGradientDefs element={el} prefix="presentation" />
+            {(() => {
+              const points = el.type === 'polygon'
+                ? getPolygonPoints(el.width, el.height)
+                : getDiamondPoints(el.width, el.height);
+              return (
+                <>
+                  <polygon points={points} fill={fillStyle} stroke="none" />
+                  {svgGradients.map((gradient) => (
+                    <polygon
+                      key={gradient.id}
+                      points={points}
+                      fill={`url(#${getSvgGradientId('presentation', el.id, gradient.id)})`}
+                      opacity={gradient.opacity}
+                      stroke="none"
+                    />
+                  ))}
+                  <polygon points={points} fill="none" stroke={strokeStyle} strokeWidth={el.strokeWidth} strokeDasharray={strokeDash} />
+                </>
+              );
+            })()}
+          </svg>
+        )}
+
+        {el.type === 'image' && (
+          <img
+            src={el.mediaSrc}
+            alt={el.mediaName || el.name}
+            draggable={false}
+            className="h-full w-full"
+            style={{ objectFit: el.objectFit || 'cover', borderRadius: `${el.cornerRadius || 0}px` }}
+          />
+        )}
+
+        {el.type === 'video' && (
+          <video
+            src={el.mediaSrc}
+            aria-label={el.mediaName || el.name}
+            controls
+            playsInline
+            preload="metadata"
+            className="h-full w-full bg-black"
+            style={{ objectFit: el.objectFit || 'cover', borderRadius: `${el.cornerRadius || 0}px` }}
+          />
+        )}
+
         {el.type === 'text' && (
           <div
             className="w-full h-full flex items-center break-words whitespace-pre-wrap select-none"
@@ -215,6 +269,23 @@ export const PresentationMode: React.FC = () => {
                 opacity={gradient.opacity}
               />
             ))}
+          </svg>
+        )}
+
+        {el.type === 'arrow' && (
+          <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+            {(() => {
+              const color = el.strokeWidth > 0 ? strokeStyle : fillStyle;
+              const width = Math.max(2, el.strokeWidth || 3);
+              const headSize = Math.max(10, Math.min(24, el.height * 0.45));
+              const midY = el.height / 2;
+              return (
+                <>
+                  <line x1="0" y1={midY} x2={Math.max(0, el.width - headSize)} y2={midY} stroke={color} strokeWidth={width} strokeDasharray={strokeDash} />
+                  <polygon points={`${Math.max(0, el.width - headSize)},${midY - headSize / 2} ${el.width},${midY} ${Math.max(0, el.width - headSize)},${midY + headSize / 2}`} fill={color} />
+                </>
+              );
+            })()}
           </svg>
         )}
       </div>

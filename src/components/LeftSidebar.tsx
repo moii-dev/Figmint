@@ -11,6 +11,12 @@ import {
   Square,
   Circle,
   Triangle,
+  Star,
+  Hexagon,
+  Diamond,
+  ArrowRight,
+  Image,
+  Video,
   Type,
   ChevronRight,
   ChevronDown,
@@ -68,6 +74,19 @@ export const LeftSidebar: React.FC = () => {
         return <Circle size={13} className="text-gray-500" />;
       case 'triangle':
         return <Triangle size={13} className="text-gray-500" />;
+      case 'polygon':
+        return <Hexagon size={13} className="text-gray-500" />;
+      case 'diamond':
+        return <Diamond size={13} className="text-gray-500" />;
+      case 'star':
+        return <Star size={13} className="text-gray-500" />;
+      case 'line':
+      case 'arrow':
+        return <ArrowRight size={13} className="text-gray-500" />;
+      case 'image':
+        return <Image size={13} className="text-gray-500" />;
+      case 'video':
+        return <Video size={13} className="text-gray-500" />;
       case 'text':
         return <Type size={13} className="text-gray-500" />;
       default:

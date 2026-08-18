@@ -3,9 +3,14 @@ export type ShapeType =
   | 'rectangle'
   | 'ellipse'
   | 'triangle'
+  | 'polygon'
+  | 'diamond'
   | 'star'
   | 'text'
-  | 'line';
+  | 'line'
+  | 'arrow'
+  | 'image'
+  | 'video';
 
 export type ToolType =
   | 'select'
@@ -14,9 +19,12 @@ export type ToolType =
   | 'rectangle'
   | 'ellipse'
   | 'triangle'
+  | 'polygon'
+  | 'diamond'
   | 'star'
   | 'text'
-  | 'line';
+  | 'line'
+  | 'arrow';
 
 export type TransformHandle =
   | 'tl'
@@ -90,6 +98,11 @@ export interface CanvasElement {
   textAlign?: 'left' | 'center' | 'right';
   letterSpacing?: number;
   lineHeight?: number;
+  // Media specific
+  mediaSrc?: string;
+  mediaMimeType?: string;
+  mediaName?: string;
+  objectFit?: 'cover' | 'contain' | 'fill';
 }
 
 export interface FigmaProject {

@@ -18,6 +18,22 @@ export function getTrianglePoints(width: number, height: number): string {
   return `${p1} ${p2} ${p3}`;
 }
 
+export function getPolygonPoints(width: number, height: number, sides = 6): string {
+  const cx = width / 2;
+  const cy = height / 2;
+  const rx = width / 2;
+  const ry = height / 2;
+
+  return Array.from({ length: sides }, (_, index) => {
+    const angle = -Math.PI / 2 + (index * Math.PI * 2) / sides;
+    return `${(cx + Math.cos(angle) * rx).toFixed(2)},${(cy + Math.sin(angle) * ry).toFixed(2)}`;
+  }).join(' ');
+}
+
+export function getDiamondPoints(width: number, height: number): string {
+  return `${width / 2},0 ${width},${height / 2} ${width / 2},${height} 0,${height / 2}`;
+}
+
 export function getStarPoints(width: number, height: number, points = 5, innerRatio = 0.4): string {
   const cx = width / 2;
   const cy = height / 2;
@@ -329,6 +345,19 @@ export function generateSvgString(
         const points = `${x + width / 2},${y} ${x + width},${y + height} ${x},${y + height}`;
         return `  <polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} ${transform} ${opacityAttr} />\n`;
       }
+      if (el.type === 'polygon' || el.type === 'diamond') {
+        const localPoints = el.type === 'polygon'
+          ? getPolygonPoints(width, height)
+          : getDiamondPoints(width, height);
+        const points = localPoints
+          .split(' ')
+          .map((point) => {
+            const [pointX, pointY] = point.split(',').map(Number);
+            return `${x + pointX},${y + pointY}`;
+          })
+          .join(' ');
+        return `  <polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} ${transform} ${opacityAttr} />\n`;
+      }
       if (el.type === 'star') {
         const points = getStarPoints(width, height)
           .split(' ')
@@ -358,16 +387,28 @@ export function generateSvgString(
       if (el.type === 'line' && !outline) {
         return `  <line x1="${x}" y1="${y}" x2="${x + width}" y2="${y + height}" stroke="${paint}" stroke-width="${Math.max(1, el.strokeWidth)}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
       }
+      if (el.type === 'arrow' && !outline) {
+        const headSize = Math.max(10, Math.min(24, height * 0.45));
+        const midY = y + height / 2;
+        const lineEnd = x + Math.max(0, width - headSize);
+        return `  <line x1="${x}" y1="${midY}" x2="${lineEnd}" y2="${midY}" stroke="${paint}" stroke-width="${Math.max(2, el.strokeWidth || 3)}" ${strokeDash} ${transform} ${opacityAttr} />\n  <polygon points="${lineEnd},${midY - headSize / 2} ${x + width},${midY} ${lineEnd},${midY + headSize / 2}" fill="${paint}" ${transform} ${opacityAttr} />\n`;
+      }
+      if (el.type === 'image' && !outline && el.mediaSrc) {
+        return `  <image href="${escapeXml(el.mediaSrc)}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="${el.objectFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice'}" ${transform} ${opacityAttr} />\n`;
+      }
+      if (el.type === 'video' && !outline) {
+        return `  <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${el.cornerRadius || 0}" fill="#111827" ${transform} ${opacityAttr} />\n  <text x="${x + width / 2}" y="${y + height / 2}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="14" ${transform}>Video</text>\n`;
+      }
       return '';
     };
 
-    svgContent += renderShape(el.type === 'line' && el.strokeWidth > 0 ? strokeStyle : fillStyle, 1);
-    if (el.type !== 'line' || el.strokeWidth === 0) {
+    svgContent += renderShape((el.type === 'line' || el.type === 'arrow') && el.strokeWidth > 0 ? strokeStyle : fillStyle, 1);
+    if ((el.type !== 'line' && el.type !== 'arrow' && el.type !== 'image' && el.type !== 'video') || el.strokeWidth === 0) {
       for (const gradient of [...gradients].reverse()) {
         svgContent += renderShape(`url(#${getSvgGradientId('export', el.id, gradient.id)})`, gradient.opacity);
       }
     }
-    if (el.type !== 'line' && el.strokeWidth > 0) {
+    if (!['line', 'arrow', 'image', 'video'].includes(el.type) && el.strokeWidth > 0) {
       svgContent += renderShape('none', 1, true);
     }
     svgContent += `  </g>\n`;

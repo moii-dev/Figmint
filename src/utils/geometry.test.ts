@@ -133,3 +133,21 @@ test('SVG export uses stroke settings for text and line elements', () => {
   assert.match(svg, /<text[^>]+stroke="rgba\(255, 0, 0, 1\)"[^>]+stroke-width="2"/);
   assert.match(svg, /<line[^>]+stroke="rgba\(0, 255, 0, 1\)"[^>]+stroke-width="4"/);
 });
+
+test('SVG export supports polygon, diamond, arrow, and embedded images', () => {
+  const polygon = { ...element('polygon', 'polygon', 0, 0), width: 120, height: 80 };
+  const diamond = { ...element('diamond', 'diamond', 140, 0), width: 80, height: 80 };
+  const arrow = { ...element('arrow', 'arrow', 0, 100), width: 160, height: 40 };
+  const image: CanvasElement = {
+    ...element('image', 'image', 180, 100),
+    width: 100,
+    height: 60,
+    mediaSrc: 'data:image/png;base64,abc',
+  };
+
+  const svg = generateSvgString([polygon, diamond, arrow, image]);
+
+  assert.equal(svg.match(/<polygon/g)?.length, 3);
+  assert.match(svg, /<line[^>]+x2="142"/);
+  assert.match(svg, /<image href="data:image\/png;base64,abc"/);
+});
