@@ -20,6 +20,8 @@ import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement } from '../types/figma';
 import { hexToRgba, getTrianglePoints } from '../utils/geometry';
 import { getWorldRect } from '../utils/hierarchy';
+import { SvgGradientDefs } from './SvgGradientDefs';
+import { getSvgGradientId, getVisibleGradients } from '../utils/gradient';
 
 export const Dashboard: React.FC = () => {
   const {
@@ -91,6 +93,15 @@ export const Dashboard: React.FC = () => {
             if (!el.visible) return null;
             const fillStyle = hexToRgba(el.fill, el.fillOpacity);
             const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'none';
+            const gradients = getVisibleGradients(el);
+            const paints = [
+              { id: 'solid', paint: fillStyle, opacity: 1 },
+              ...[...gradients].reverse().map((gradient) => ({
+                id: gradient.id,
+                paint: `url(#${getSvgGradientId('dashboard', el.id, gradient.id)})`,
+                opacity: gradient.opacity,
+              })),
+            ];
 
             const worldRect = getWorldRect(el, elements);
             const posX = worldRect.x;
@@ -98,66 +109,79 @@ export const Dashboard: React.FC = () => {
 
             if (el.type === 'frame' || el.type === 'rectangle') {
               return (
-                <rect
-                  key={el.id}
-                  x={posX}
-                  y={posY}
-                  width={el.width}
-                  height={el.height}
-                  rx={el.cornerRadius || 0}
-                  fill={fillStyle}
-                  stroke={strokeStyle}
-                  strokeWidth={el.strokeWidth}
-                  opacity={el.opacity}
-                />
+                <g key={el.id} opacity={el.opacity}>
+                  <SvgGradientDefs element={el} prefix="dashboard" />
+                  {paints.map((paint) => (
+                    <rect
+                      key={paint.id}
+                      x={posX}
+                      y={posY}
+                      width={el.width}
+                      height={el.height}
+                      rx={el.cornerRadius || 0}
+                      fill={paint.paint}
+                      opacity={paint.opacity}
+                    />
+                  ))}
+                  <rect x={posX} y={posY} width={el.width} height={el.height} rx={el.cornerRadius || 0} fill="none" stroke={strokeStyle} strokeWidth={el.strokeWidth} />
+                </g>
               );
             }
             if (el.type === 'ellipse') {
               return (
-                <ellipse
-                  key={el.id}
-                  cx={posX + el.width / 2}
-                  cy={posY + el.height / 2}
-                  rx={el.width / 2}
-                  ry={el.height / 2}
-                  fill={fillStyle}
-                  stroke={strokeStyle}
-                  strokeWidth={el.strokeWidth}
-                  opacity={el.opacity}
-                />
+                <g key={el.id} opacity={el.opacity}>
+                  <SvgGradientDefs element={el} prefix="dashboard" />
+                  {paints.map((paint) => (
+                    <ellipse
+                      key={paint.id}
+                      cx={posX + el.width / 2}
+                      cy={posY + el.height / 2}
+                      rx={el.width / 2}
+                      ry={el.height / 2}
+                      fill={paint.paint}
+                      opacity={paint.opacity}
+                    />
+                  ))}
+                  <ellipse cx={posX + el.width / 2} cy={posY + el.height / 2} rx={el.width / 2} ry={el.height / 2} fill="none" stroke={strokeStyle} strokeWidth={el.strokeWidth} />
+                </g>
               );
             }
             if (el.type === 'triangle') {
+              const points = getTrianglePoints(el.width, el.height)
+                .split(' ')
+                .map((p) => {
+                  const [px, py] = p.split(',').map(Number);
+                  return `${posX + px},${posY + py}`;
+                })
+                .join(' ');
               return (
-                <polygon
-                  key={el.id}
-                  points={getTrianglePoints(el.width, el.height)
-                    .split(' ')
-                    .map((p) => {
-                      const [px, py] = p.split(',').map(Number);
-                      return `${posX + px},${posY + py}`;
-                    })
-                    .join(' ')}
-                  fill={fillStyle}
-                  stroke={strokeStyle}
-                  strokeWidth={el.strokeWidth}
-                  opacity={el.opacity}
-                />
+                <g key={el.id} opacity={el.opacity}>
+                  <SvgGradientDefs element={el} prefix="dashboard" />
+                  {paints.map((paint) => (
+                    <polygon key={paint.id} points={points} fill={paint.paint} opacity={paint.opacity} />
+                  ))}
+                  <polygon points={points} fill="none" stroke={strokeStyle} strokeWidth={el.strokeWidth} />
+                </g>
               );
             }
             if (el.type === 'text') {
               return (
-                <text
-                  key={el.id}
-                  x={posX}
-                  y={posY + (el.fontSize || 14)}
-                  fontSize={el.fontSize || 14}
-                  fontWeight={el.fontWeight || 500}
-                  fill={fillStyle}
-                  opacity={el.opacity}
-                >
-                  {el.textContent || ''}
-                </text>
+                <g key={el.id} opacity={el.opacity}>
+                  <SvgGradientDefs element={el} prefix="dashboard" />
+                  {paints.map((paint) => (
+                    <text
+                      key={paint.id}
+                      x={posX}
+                      y={posY + (el.fontSize || 14)}
+                      fontSize={el.fontSize || 14}
+                      fontWeight={el.fontWeight || 500}
+                      fill={paint.paint}
+                      opacity={paint.opacity}
+                    >
+                      {el.textContent || ''}
+                    </text>
+                  ))}
+                </g>
               );
             }
             return null;

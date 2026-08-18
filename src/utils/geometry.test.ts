@@ -79,3 +79,38 @@ test('SVG export uses world coordinates and escapes text and font metadata', () 
   assert.match(svg, /font-family="A&amp;B"/);
   assert.doesNotMatch(svg, /<Hello/);
 });
+
+test('SVG export preserves every gradient fill layer', () => {
+  const shape: CanvasElement = {
+    ...element('gradient-shape', 'rectangle', 0, 0),
+    gradients: [
+      {
+        id: 'top',
+        type: 'linear',
+        angle: 90,
+        opacity: 0.8,
+        visible: true,
+        stops: [
+          { color: '#8B5CF6', position: 0, opacity: 1 },
+          { color: '#06B6D4', position: 100, opacity: 1 },
+        ],
+      },
+      {
+        id: 'bottom',
+        type: 'linear',
+        angle: 180,
+        opacity: 0.6,
+        visible: true,
+        stops: [
+          { color: '#FF4D8D', position: 0, opacity: 1 },
+          { color: '#FFB648', position: 100, opacity: 1 },
+        ],
+      },
+    ],
+  };
+
+  const svg = generateSvgString([shape]);
+  assert.equal(svg.match(/<linearGradient/g)?.length, 2);
+  assert.match(svg, /url\(#export-gradient-shape-top\)/);
+  assert.match(svg, /url\(#export-gradient-shape-bottom\)/);
+});

@@ -1,5 +1,10 @@
 import { CanvasElement, Point, Rect, SnapGuide } from '../types/figma';
 import { getTopLevelSelectionIds, getWorldRect } from './hierarchy';
+import {
+  getSvgGradientCoordinates,
+  getSvgGradientId,
+  getVisibleGradients,
+} from './gradient';
 
 /**
  * Generates an SVG path or points for shapes
@@ -287,46 +292,79 @@ export function generateSvgString(
     const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'none';
     const strokeDash = el.strokeStyle === 'dashed' ? 'stroke-dasharray="6,4"' : el.strokeStyle === 'dotted' ? 'stroke-dasharray="2,3"' : '';
     const transform = el.rotation ? `transform="rotate(${el.rotation} ${x + width / 2} ${y + height / 2})"` : '';
-    const opacityAttr = el.opacity < 1 ? `opacity="${el.opacity}"` : '';
+    const gradients = getVisibleGradients(el);
+    svgContent += `  <g opacity="${Math.max(0, Math.min(1, el.opacity))}">\n`;
 
-    if (el.type === 'frame' || el.type === 'rectangle') {
-      const rx = el.cornerRadius || 0;
-      svgContent += `  <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
-    } else if (el.type === 'ellipse') {
-      const cx = x + width / 2;
-      const cy = y + height / 2;
-      const rx = width / 2;
-      const ry = height / 2;
-      svgContent += `  <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
-    } else if (el.type === 'triangle') {
-      const p1 = `${x + width / 2},${y}`;
-      const p2 = `${x + width},${y + height}`;
-      const p3 = `${x},${y + height}`;
-      svgContent += `  <polygon points="${p1} ${p2} ${p3}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
-    } else if (el.type === 'star') {
-      const points = getStarPoints(width, height)
-        .split(' ')
-        .map((point) => {
-          const [pointX, pointY] = point.split(',').map(Number);
-          return `${x + pointX},${y + pointY}`;
-        })
-        .join(' ');
-      svgContent += `  <polygon points="${points}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
-    } else if (el.type === 'text') {
-      const fontSize = el.fontSize || 14;
-      const fontWeight = el.fontWeight || 400;
-      const textAnchor = el.textAlign === 'center' ? 'middle' : el.textAlign === 'right' ? 'end' : 'start';
-      const textX = el.textAlign === 'center' ? x + width / 2 : el.textAlign === 'right' ? x + width : x;
-      const lineHeight = fontSize * (el.lineHeight || 1.2);
-      const lines = (el.textContent || '').split('\n');
-      const family = escapeXml(el.fontFamily || '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif');
-      const tspans = lines
-        .map((line, index) => `<tspan x="${textX}" dy="${index === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
-        .join('');
-      svgContent += `  <text x="${textX}" y="${y + fontSize}" font-size="${fontSize}" font-weight="${fontWeight}" font-family="${family}" text-anchor="${textAnchor}" letter-spacing="${el.letterSpacing || 0}" fill="${fillStyle}" ${transform} ${opacityAttr}>${tspans}</text>\n`;
-    } else if (el.type === 'line') {
-      svgContent += `  <line x1="${x}" y1="${y}" x2="${x + width}" y2="${y + height}" stroke="${fillStyle}" stroke-width="${Math.max(1, el.strokeWidth)}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
+    if (gradients.length) {
+      svgContent += `  <defs>\n`;
+      for (const gradient of gradients) {
+        const id = getSvgGradientId('export', el.id, gradient.id);
+        const coordinates = getSvgGradientCoordinates(gradient.angle);
+        svgContent += `    <linearGradient id="${id}" x1="${coordinates.x1}" y1="${coordinates.y1}" x2="${coordinates.x2}" y2="${coordinates.y2}">\n`;
+        for (const stop of gradient.stops) {
+          svgContent += `      <stop offset="${Math.max(0, Math.min(100, stop.position))}%" stop-color="${escapeXml(stop.color)}" stop-opacity="${Math.max(0, Math.min(1, stop.opacity))}" />\n`;
+        }
+        svgContent += `    </linearGradient>\n`;
+      }
+      svgContent += `  </defs>\n`;
     }
+
+    const renderShape = (paint: string, layerOpacity: number, outline = false) => {
+      const opacity = Math.max(0, Math.min(1, layerOpacity));
+      const opacityAttr = opacity < 1 ? `opacity="${opacity}"` : '';
+      const fill = outline ? 'none' : paint;
+      const stroke = outline ? strokeStyle : 'none';
+      const strokeWidth = outline ? el.strokeWidth : 0;
+      const dash = outline ? strokeDash : '';
+
+      if (el.type === 'frame' || el.type === 'rectangle') {
+        const rx = el.cornerRadius || 0;
+        return `  <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} ${transform} ${opacityAttr} />\n`;
+      }
+      if (el.type === 'ellipse') {
+        return `  <ellipse cx="${x + width / 2}" cy="${y + height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} ${transform} ${opacityAttr} />\n`;
+      }
+      if (el.type === 'triangle') {
+        const points = `${x + width / 2},${y} ${x + width},${y + height} ${x},${y + height}`;
+        return `  <polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} ${transform} ${opacityAttr} />\n`;
+      }
+      if (el.type === 'star') {
+        const points = getStarPoints(width, height)
+          .split(' ')
+          .map((point) => {
+            const [pointX, pointY] = point.split(',').map(Number);
+            return `${x + pointX},${y + pointY}`;
+          })
+          .join(' ');
+        return `  <polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} ${transform} ${opacityAttr} />\n`;
+      }
+      if (el.type === 'text' && !outline) {
+        const fontSize = el.fontSize || 14;
+        const fontWeight = el.fontWeight || 400;
+        const textAnchor = el.textAlign === 'center' ? 'middle' : el.textAlign === 'right' ? 'end' : 'start';
+        const textX = el.textAlign === 'center' ? x + width / 2 : el.textAlign === 'right' ? x + width : x;
+        const lineHeight = fontSize * (el.lineHeight || 1.2);
+        const family = escapeXml(el.fontFamily || '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif');
+        const tspans = (el.textContent || '')
+          .split('\n')
+          .map((line, index) => `<tspan x="${textX}" dy="${index === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
+          .join('');
+        return `  <text x="${textX}" y="${y + fontSize}" font-size="${fontSize}" font-weight="${fontWeight}" font-family="${family}" text-anchor="${textAnchor}" letter-spacing="${el.letterSpacing || 0}" fill="${paint}" ${transform} ${opacityAttr}>${tspans}</text>\n`;
+      }
+      if (el.type === 'line' && !outline) {
+        return `  <line x1="${x}" y1="${y}" x2="${x + width}" y2="${y + height}" stroke="${paint}" stroke-width="${Math.max(1, el.strokeWidth)}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
+      }
+      return '';
+    };
+
+    svgContent += renderShape(fillStyle, 1);
+    for (const gradient of [...gradients].reverse()) {
+      svgContent += renderShape(`url(#${getSvgGradientId('export', el.id, gradient.id)})`, gradient.opacity);
+    }
+    if (!['text', 'line'].includes(el.type) && el.strokeWidth > 0) {
+      svgContent += renderShape('none', 1, true);
+    }
+    svgContent += `  </g>\n`;
   }
 
   svgContent += `</svg>`;

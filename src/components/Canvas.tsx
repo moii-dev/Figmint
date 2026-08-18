@@ -4,6 +4,7 @@ import { CanvasElement, TransformHandle, Point, Rect, SnapGuide } from '../types
 import { TransformOverlay } from './TransformOverlay';
 import { Rulers } from './Rulers';
 import { FloatingBottomToolbar } from './FloatingBottomToolbar';
+import { SvgGradientDefs } from './SvgGradientDefs';
 import {
   getTrianglePoints,
   getStarPoints,
@@ -19,6 +20,11 @@ import {
   getTopLevelSelectionIds,
   worldToLocalPosition,
 } from '../utils/hierarchy';
+import {
+  getElementCssFill,
+  getSvgGradientId,
+  getVisibleGradients,
+} from '../utils/gradient';
 
 interface DragElementSnapshot {
   id: string;
@@ -570,6 +576,9 @@ export const Canvas: React.FC = () => {
   // Render individual canvas shape (rectangle, ellipse, text, etc.)
   const renderShapeContent = (el: CanvasElement) => {
     const fillStyle = hexToRgba(el.fill, el.fillOpacity);
+    const fillCss = getElementCssFill(el);
+    const visibleGradients = getVisibleGradients(el);
+    const svgGradients = [...visibleGradients].reverse();
     const strokeStyle =
       el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'transparent';
     const strokeDash =
@@ -587,7 +596,7 @@ export const Canvas: React.FC = () => {
         <div
           className="w-full h-full"
           style={{
-            backgroundColor: fillStyle,
+            ...fillCss,
             borderWidth: `${el.strokeWidth}px`,
             borderColor: strokeStyle,
             borderStyle:
@@ -608,7 +617,7 @@ export const Canvas: React.FC = () => {
         <div
           className="w-full h-full rounded-full"
           style={{
-            backgroundColor: fillStyle,
+            ...fillCss,
             borderWidth: `${el.strokeWidth}px`,
             borderColor: strokeStyle,
             borderStyle:
@@ -637,9 +646,24 @@ export const Canvas: React.FC = () => {
               : 'none',
           }}
         >
+          <SvgGradientDefs element={el} prefix="canvas" />
           <polygon
             points={getTrianglePoints(el.width, el.height)}
             fill={fillStyle}
+            stroke="none"
+          />
+          {svgGradients.map((gradient) => (
+            <polygon
+              key={gradient.id}
+              points={getTrianglePoints(el.width, el.height)}
+              fill={`url(#${getSvgGradientId('canvas', el.id, gradient.id)})`}
+              opacity={gradient.opacity}
+              stroke="none"
+            />
+          ))}
+          <polygon
+            points={getTrianglePoints(el.width, el.height)}
+            fill="none"
             stroke={strokeStyle}
             strokeWidth={el.strokeWidth}
             strokeDasharray={strokeDash}
@@ -651,9 +675,24 @@ export const Canvas: React.FC = () => {
     if (el.type === 'star') {
       return (
         <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+          <SvgGradientDefs element={el} prefix="canvas" />
           <polygon
             points={getStarPoints(el.width, el.height)}
             fill={fillStyle}
+            stroke="none"
+          />
+          {svgGradients.map((gradient) => (
+            <polygon
+              key={gradient.id}
+              points={getStarPoints(el.width, el.height)}
+              fill={`url(#${getSvgGradientId('canvas', el.id, gradient.id)})`}
+              opacity={gradient.opacity}
+              stroke="none"
+            />
+          ))}
+          <polygon
+            points={getStarPoints(el.width, el.height)}
+            fill="none"
             stroke={strokeStyle}
             strokeWidth={el.strokeWidth}
             strokeDasharray={strokeDash}
@@ -700,7 +739,7 @@ export const Canvas: React.FC = () => {
                 fontFamily: el.fontFamily,
                 letterSpacing: `${el.letterSpacing || 0}px`,
                 lineHeight: el.lineHeight || 1.2,
-                color: el.fill,
+                color: fillStyle,
                 textAlign: el.textAlign || 'left',
               }}
             />
@@ -713,8 +752,13 @@ export const Canvas: React.FC = () => {
                 fontFamily: el.fontFamily,
                 letterSpacing: `${el.letterSpacing || 0}px`,
                 lineHeight: el.lineHeight || 1.2,
-                color: el.fill,
+                color: visibleGradients.length ? 'transparent' : fillStyle,
                 textAlign: el.textAlign || 'left',
+                backgroundImage: visibleGradients.length
+                  ? `${fillCss.backgroundImage}, linear-gradient(${fillStyle}, ${fillStyle})`
+                  : undefined,
+                backgroundClip: visibleGradients.length ? 'text' : undefined,
+                WebkitBackgroundClip: visibleGradients.length ? 'text' : undefined,
               }}
             >
               {el.textContent || 'Double click to edit'}
@@ -727,6 +771,7 @@ export const Canvas: React.FC = () => {
     if (el.type === 'line') {
       return (
         <svg className="w-full h-full overflow-visible">
+          <SvgGradientDefs element={el} prefix="canvas" />
           <line
             x1="0"
             y1="0"
@@ -736,6 +781,19 @@ export const Canvas: React.FC = () => {
             strokeWidth={Math.max(1, el.strokeWidth)}
             strokeDasharray={strokeDash}
           />
+          {svgGradients.map((gradient) => (
+            <line
+              key={gradient.id}
+              x1="0"
+              y1="0"
+              x2={el.width}
+              y2={el.height}
+              stroke={`url(#${getSvgGradientId('canvas', el.id, gradient.id)})`}
+              strokeWidth={Math.max(1, el.strokeWidth)}
+              strokeDasharray={strokeDash}
+              opacity={gradient.opacity}
+            />
+          ))}
         </svg>
       );
     }
@@ -800,7 +858,7 @@ export const Canvas: React.FC = () => {
     const isSingleSelected = selectedIds.length === 1 && isSelected;
     const isEditing = editingTextId === el.id;
 
-    const fillStyle = hexToRgba(el.fill, el.fillOpacity);
+    const fillCss = getElementCssFill(el);
     const strokeStyle =
       el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'transparent';
     let boxShadowStyle = 'none';
@@ -856,7 +914,7 @@ export const Canvas: React.FC = () => {
           <div
             className="w-full h-full absolute inset-0 pointer-events-auto"
             style={{
-              backgroundColor: fillStyle,
+              ...fillCss,
               borderWidth: `${el.strokeWidth}px`,
               borderColor: strokeStyle,
               borderStyle:

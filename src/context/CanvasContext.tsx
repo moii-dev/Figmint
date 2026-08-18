@@ -12,6 +12,7 @@ import {
   DevicePreset,
   Point,
   FigmaProject,
+  LinearGradientFill,
 } from '../types/figma';
 import {
   INITIAL_PROJECTS,
@@ -37,6 +38,31 @@ import {
 const STORAGE_KEY = 'figma_clone_projects_v3';
 const ACTIVE_PROJ_KEY = 'figma_clone_active_proj_id_v3';
 const IMPORTABLE_TYPES = new Set(['frame', 'rectangle', 'ellipse', 'triangle', 'star', 'text', 'line']);
+
+function normalizeImportedGradients(value: unknown): LinearGradientFill[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  return value.flatMap((item, index) => {
+    if (!item || typeof item !== 'object') return [];
+    const raw = item as Partial<LinearGradientFill>;
+    if (!Array.isArray(raw.stops) || raw.stops.length < 2) return [];
+
+    const stops = raw.stops.slice(0, 2).map((stop, stopIndex) => ({
+      color: typeof stop?.color === 'string' ? stop.color : stopIndex === 0 ? '#8B5CF6' : '#06B6D4',
+      position: Number.isFinite(stop?.position) ? Math.max(0, Math.min(100, Number(stop.position))) : stopIndex * 100,
+      opacity: Number.isFinite(stop?.opacity) ? Math.max(0, Math.min(1, Number(stop.opacity))) : 1,
+    }));
+
+    return [{
+      id: typeof raw.id === 'string' && raw.id ? raw.id : `gradient-import-${index}`,
+      type: 'linear' as const,
+      angle: Number.isFinite(raw.angle) ? Number(raw.angle) : 135,
+      opacity: Number.isFinite(raw.opacity) ? Math.max(0, Math.min(1, Number(raw.opacity))) : 0.82,
+      visible: raw.visible !== false,
+      stops,
+    }];
+  });
+}
 
 function normalizeImportedElements(value: unknown): CanvasElement[] | null {
   if (!Array.isArray(value)) return null;
@@ -74,6 +100,7 @@ function normalizeImportedElements(value: unknown): CanvasElement[] | null {
       rotation: Number.isFinite(raw.rotation) ? Number(raw.rotation) : 0,
       fill: typeof raw.fill === 'string' ? raw.fill : '#0d99ff',
       fillOpacity: Number.isFinite(raw.fillOpacity) ? Math.max(0, Math.min(1, Number(raw.fillOpacity))) : 1,
+      gradients: normalizeImportedGradients(raw.gradients),
       stroke: typeof raw.stroke === 'string' ? raw.stroke : '#000000',
       strokeWidth: Number.isFinite(raw.strokeWidth) ? Math.max(0, Number(raw.strokeWidth)) : 0,
       strokeOpacity: Number.isFinite(raw.strokeOpacity) ? Math.max(0, Math.min(1, Number(raw.strokeOpacity))) : 1,

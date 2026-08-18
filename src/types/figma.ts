@@ -39,6 +39,21 @@ export interface ShadowEffect {
   opacity: number;
 }
 
+export interface GradientStop {
+  color: string;
+  position: number;
+  opacity: number;
+}
+
+export interface LinearGradientFill {
+  id: string;
+  type: 'linear';
+  angle: number;
+  opacity: number;
+  visible: boolean;
+  stops: GradientStop[];
+}
+
 export interface CanvasElement {
   id: string;
   name: string;
@@ -50,6 +65,7 @@ export interface CanvasElement {
   rotation: number; // degrees
   fill: string;
   fillOpacity: number;
+  gradients?: LinearGradientFill[];
   stroke: string;
   strokeWidth: number;
   strokeOpacity: number;

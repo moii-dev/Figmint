@@ -3,6 +3,12 @@ import { X, ChevronLeft, ChevronRight, Smartphone } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement } from '../types/figma';
 import { hexToRgba, getStarPoints, getTrianglePoints } from '../utils/geometry';
+import { SvgGradientDefs } from './SvgGradientDefs';
+import {
+  getElementCssFill,
+  getSvgGradientId,
+  getVisibleGradients,
+} from '../utils/gradient';
 
 export const PresentationMode: React.FC = () => {
   const { elements, presentationMode, setPresentationMode } = useCanvas();
@@ -55,6 +61,9 @@ export const PresentationMode: React.FC = () => {
     const relX = el.x;
     const relY = el.y;
     const fillStyle = hexToRgba(el.fill, el.fillOpacity);
+    const fillCss = getElementCssFill(el);
+    const visibleGradients = getVisibleGradients(el);
+    const svgGradients = [...visibleGradients].reverse();
     const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'transparent';
     const strokeDash = el.strokeStyle === 'dashed' ? '6 4' : el.strokeStyle === 'dotted' ? '2 3' : 'none';
 
@@ -81,7 +90,7 @@ export const PresentationMode: React.FC = () => {
           <div
             className="w-full h-full"
             style={{
-              backgroundColor: fillStyle,
+              ...fillCss,
               borderWidth: `${el.strokeWidth}px`,
               borderColor: strokeStyle,
               borderRadius: el.cornerRadius ? `${el.cornerRadius}px` : '0px',
@@ -94,7 +103,7 @@ export const PresentationMode: React.FC = () => {
           <div
             className="w-full h-full rounded-full"
             style={{
-              backgroundColor: fillStyle,
+              ...fillCss,
               borderWidth: `${el.strokeWidth}px`,
               borderColor: strokeStyle,
               boxShadow: boxShadowStyle,
@@ -104,9 +113,24 @@ export const PresentationMode: React.FC = () => {
 
         {el.type === 'triangle' && (
           <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+            <SvgGradientDefs element={el} prefix="presentation" />
             <polygon
               points={getTrianglePoints(el.width, el.height)}
               fill={fillStyle}
+              stroke="none"
+            />
+            {svgGradients.map((gradient) => (
+              <polygon
+                key={gradient.id}
+                points={getTrianglePoints(el.width, el.height)}
+                fill={`url(#${getSvgGradientId('presentation', el.id, gradient.id)})`}
+                opacity={gradient.opacity}
+                stroke="none"
+              />
+            ))}
+            <polygon
+              points={getTrianglePoints(el.width, el.height)}
+              fill="none"
               stroke={strokeStyle}
               strokeWidth={el.strokeWidth}
               strokeDasharray={strokeDash}
@@ -116,9 +140,24 @@ export const PresentationMode: React.FC = () => {
 
         {el.type === 'star' && (
           <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+            <SvgGradientDefs element={el} prefix="presentation" />
             <polygon
               points={getStarPoints(el.width, el.height)}
               fill={fillStyle}
+              stroke="none"
+            />
+            {svgGradients.map((gradient) => (
+              <polygon
+                key={gradient.id}
+                points={getStarPoints(el.width, el.height)}
+                fill={`url(#${getSvgGradientId('presentation', el.id, gradient.id)})`}
+                opacity={gradient.opacity}
+                stroke="none"
+              />
+            ))}
+            <polygon
+              points={getStarPoints(el.width, el.height)}
+              fill="none"
               stroke={strokeStyle}
               strokeWidth={el.strokeWidth}
               strokeDasharray={strokeDash}
@@ -135,8 +174,13 @@ export const PresentationMode: React.FC = () => {
               fontFamily: el.fontFamily,
               letterSpacing: `${el.letterSpacing || 0}px`,
               lineHeight: el.lineHeight || 1.2,
-              color: el.fill,
+              color: visibleGradients.length ? 'transparent' : fillStyle,
               textAlign: el.textAlign || 'left',
+              backgroundImage: visibleGradients.length
+                ? `${fillCss.backgroundImage}, linear-gradient(${fillStyle}, ${fillStyle})`
+                : undefined,
+              backgroundClip: visibleGradients.length ? 'text' : undefined,
+              WebkitBackgroundClip: visibleGradients.length ? 'text' : undefined,
             }}
           >
             {el.textContent || ''}
@@ -145,6 +189,7 @@ export const PresentationMode: React.FC = () => {
 
         {el.type === 'line' && (
           <svg className="w-full h-full overflow-visible">
+            <SvgGradientDefs element={el} prefix="presentation" />
             <line
               x1="0"
               y1="0"
@@ -154,6 +199,19 @@ export const PresentationMode: React.FC = () => {
               strokeWidth={Math.max(1, el.strokeWidth)}
               strokeDasharray={strokeDash}
             />
+            {svgGradients.map((gradient) => (
+              <line
+                key={gradient.id}
+                x1="0"
+                y1="0"
+                x2={el.width}
+                y2={el.height}
+                stroke={`url(#${getSvgGradientId('presentation', el.id, gradient.id)})`}
+                strokeWidth={Math.max(1, el.strokeWidth)}
+                strokeDasharray={strokeDash}
+                opacity={gradient.opacity}
+              />
+            ))}
           </svg>
         )}
       </div>
@@ -218,7 +276,7 @@ export const PresentationMode: React.FC = () => {
             style={{
               width: `${currentFrame.width}px`,
               height: `${currentFrame.height}px`,
-              backgroundColor: currentFrame.fill,
+              ...getElementCssFill(currentFrame),
               borderRadius: `${currentFrame.cornerRadius || 0}px`,
               borderWidth: `${currentFrame.strokeWidth}px`,
               borderColor: currentFrame.stroke,
