@@ -4,18 +4,19 @@ import { CanvasElement, TransformHandle } from '../types/figma';
 interface TransformOverlayProps {
   element: CanvasElement;
   zoom: number;
-  onHandleMouseDown: (e: React.MouseEvent, handle: TransformHandle) => void;
-  onRadiusHandleMouseDown: (e: React.MouseEvent, cornerIndex?: number) => void;
+  onHandlePointerDown: (e: React.PointerEvent, handle: TransformHandle) => void;
+  onRadiusHandlePointerDown: (e: React.PointerEvent, cornerIndex?: number) => void;
   isResizing?: boolean;
   isDragging?: boolean;
+  showRadiusHandles?: boolean;
 }
 
 export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   element,
   zoom,
-  onHandleMouseDown,
-  onRadiusHandleMouseDown,
-  isResizing,
+  onHandlePointerDown,
+  onRadiusHandlePointerDown,
+  showRadiusHandles = true,
 }) => {
   const { width, height, cornerRadius, type } = element;
   const isShapeWithRadius = (type === 'rectangle' || type === 'frame') && width > 40 && height > 40;
@@ -44,8 +45,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       style={{
         width: `${width}px`,
         height: `${height}px`,
-        transform: `rotate(${element.rotation || 0}deg)`,
-        transformOrigin: 'center center',
       }}
     >
       {/* Figma Selection Bounding Box Border */}
@@ -80,7 +79,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         return (
           <div
             key={h.type}
-            onMouseDown={(e) => onHandleMouseDown(e, h.type)}
+            onPointerDown={(e) => onHandlePointerDown(e, h.type)}
+            aria-label={`Resize ${h.type}`}
             className="absolute bg-white border border-[#0d99ff] rounded-[1px] pointer-events-auto hover:scale-125 transition-transform z-30 shadow-xs"
             style={{
               width: `${size}px`,
@@ -95,10 +95,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       })}
 
       {/* Interactive Figma Inner Corner Radius Handles */}
-      {isShapeWithRadius && (
+      {showRadiusHandles && isShapeWithRadius && (
         <>
           <div
-            onMouseDown={(e) => onRadiusHandleMouseDown(e, 0)}
+            onPointerDown={(e) => onRadiusHandlePointerDown(e, 0)}
             title="Adjust corner radius"
             className="absolute w-2.5 h-2.5 rounded-full bg-white border border-[#0d99ff] pointer-events-auto hover:bg-[#0d99ff] hover:scale-125 transition-all shadow-xs z-30 cursor-nwse-resize"
             style={{
@@ -108,7 +108,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
             }}
           />
           <div
-            onMouseDown={(e) => onRadiusHandleMouseDown(e, 1)}
+            onPointerDown={(e) => onRadiusHandlePointerDown(e, 1)}
             title="Adjust corner radius"
             className="absolute w-2.5 h-2.5 rounded-full bg-white border border-[#0d99ff] pointer-events-auto hover:bg-[#0d99ff] hover:scale-125 transition-all shadow-xs z-30 cursor-nesw-resize"
             style={{
@@ -118,7 +118,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
             }}
           />
           <div
-            onMouseDown={(e) => onRadiusHandleMouseDown(e, 2)}
+            onPointerDown={(e) => onRadiusHandlePointerDown(e, 2)}
             title="Adjust corner radius"
             className="absolute w-2.5 h-2.5 rounded-full bg-white border border-[#0d99ff] pointer-events-auto hover:bg-[#0d99ff] hover:scale-125 transition-all shadow-xs z-30 cursor-nwse-resize"
             style={{
@@ -128,7 +128,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
             }}
           />
           <div
-            onMouseDown={(e) => onRadiusHandleMouseDown(e, 3)}
+            onPointerDown={(e) => onRadiusHandlePointerDown(e, 3)}
             title="Adjust corner radius"
             className="absolute w-2.5 h-2.5 rounded-full bg-white border border-[#0d99ff] pointer-events-auto hover:bg-[#0d99ff] hover:scale-125 transition-all shadow-xs z-30 cursor-nesw-resize"
             style={{

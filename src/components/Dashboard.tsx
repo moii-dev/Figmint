@@ -7,21 +7,19 @@ import {
   Copy,
   Edit2,
   FolderOpen,
-  Download,
   Clock,
   LayoutGrid,
   List,
-  Sparkles,
   Smartphone,
   Monitor,
   Layers,
-  ArrowRight,
   ChevronRight,
   SlidersHorizontal,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
-import { FigmaProject, CanvasElement } from '../types/figma';
+import { CanvasElement } from '../types/figma';
 import { hexToRgba, getTrianglePoints } from '../utils/geometry';
+import { getWorldRect } from '../utils/hierarchy';
 
 export const Dashboard: React.FC = () => {
   const {
@@ -94,9 +92,9 @@ export const Dashboard: React.FC = () => {
             const fillStyle = hexToRgba(el.fill, el.fillOpacity);
             const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'none';
 
-            // Calculate world coords for rendering in svg
-            const posX = el.parentId ? mainFrame.x + el.x : el.x;
-            const posY = el.parentId ? mainFrame.y + el.y : el.y;
+            const worldRect = getWorldRect(el, elements);
+            const posX = worldRect.x;
+            const posY = worldRect.y;
 
             if (el.type === 'frame' || el.type === 'rectangle') {
               return (
@@ -170,9 +168,9 @@ export const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-[#f8fafc] text-[#1e293b] overflow-hidden select-none font-sans">
+    <div className="flex flex-col md:flex-row h-screen w-screen bg-[#f8fafc] text-[#1e293b] overflow-hidden select-none font-sans">
       {/* 1. Left Navigation Sidebar (Figma Home UI3) */}
-      <aside className="w-64 bg-white border-r border-[#e2e8f0] flex flex-col h-full z-20">
+      <aside className="hidden w-64 bg-white border-r border-[#e2e8f0] md:flex flex-col h-full z-20 flex-none">
         {/* User / Workspace Header */}
         <div className="p-4 border-b border-[#e2e8f0] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -268,11 +266,11 @@ export const Dashboard: React.FC = () => {
       </aside>
 
       {/* 2. Main Dashboard Content */}
-      <main className="flex-1 flex flex-col h-full overflow-y-auto custom-scrollbar">
+      <main className="flex-1 min-w-0 flex flex-col h-full overflow-y-auto custom-scrollbar">
         {/* Top Search & Filter Bar */}
-        <header className="h-14 border-b border-[#e2e8f0] bg-white px-6 flex items-center justify-between sticky top-0 z-10">
+        <header className="min-h-14 border-b border-[#e2e8f0] bg-white px-3 sm:px-6 py-2 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between sticky top-0 z-10">
           {/* Search Box */}
-          <div className="flex items-center bg-[#f1f5f9] rounded-xl px-3 py-1.5 w-80 border border-transparent focus-within:border-[#0d99ff] focus-within:bg-white transition-all">
+          <div className="flex items-center bg-[#f1f5f9] rounded-xl px-3 py-1.5 w-full sm:w-80 border border-transparent focus-within:border-[#0d99ff] focus-within:bg-white transition-all">
             <Search size={14} className="text-gray-400 mr-2" />
             <input
               type="text"
@@ -284,7 +282,7 @@ export const Dashboard: React.FC = () => {
           </div>
 
           {/* View controls & Sorting */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between sm:justify-end gap-3">
             {/* Sort Toggle */}
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <SlidersHorizontal size={13} />
@@ -302,12 +300,16 @@ export const Dashboard: React.FC = () => {
             <div className="flex items-center bg-[#f1f5f9] p-0.5 rounded-lg border border-[#e2e8f0]">
               <button
                 onClick={() => setViewLayout('grid')}
+                aria-label="Grid view"
+                aria-pressed={viewLayout === 'grid'}
                 className={`p-1 rounded ${viewLayout === 'grid' ? 'bg-white shadow-xs text-gray-900' : 'text-gray-400'}`}
               >
                 <LayoutGrid size={14} />
               </button>
               <button
                 onClick={() => setViewLayout('list')}
+                aria-label="List view"
+                aria-pressed={viewLayout === 'list'}
                 className={`p-1 rounded ${viewLayout === 'list' ? 'bg-white shadow-xs text-gray-900' : 'text-gray-400'}`}
               >
                 <List size={14} />
@@ -317,7 +319,7 @@ export const Dashboard: React.FC = () => {
         </header>
 
         {/* Content Body */}
-        <div className="p-8 max-w-7xl w-full mx-auto space-y-6">
+        <div className="p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
           {/* Header row */}
           <div className="flex items-center justify-between">
             <div>
@@ -431,6 +433,7 @@ export const Dashboard: React.FC = () => {
                             setMenuOpenId(isMenuOpen ? null : project.id);
                           }}
                           className="w-7 h-7 rounded-lg hover:bg-[#f1f5f9] text-gray-400 hover:text-gray-800 flex items-center justify-center transition-colors cursor-pointer"
+                          aria-label={`Actions for ${project.title}`}
                         >
                           <MoreVertical size={14} />
                         </button>

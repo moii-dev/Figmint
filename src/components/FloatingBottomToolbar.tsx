@@ -8,7 +8,6 @@ import {
   Triangle,
   Type,
   PenTool,
-  Sparkles,
   ChevronDown,
   Smartphone,
   Laptop,
@@ -18,9 +17,9 @@ import {
   Redo2,
   Grid,
   Magnet,
+  Ruler,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
-import { ToolType, DevicePreset } from '../types/figma';
 import { DEVICE_PRESETS } from '../data/presets';
 
 export const FloatingBottomToolbar: React.FC = () => {
@@ -36,6 +35,8 @@ export const FloatingBottomToolbar: React.FC = () => {
     setGridVisible,
     snapToGrid,
     setSnapToGrid,
+    rulerVisible,
+    setRulerVisible,
     setActiveLeftTab,
   } = useCanvas();
 
@@ -73,9 +74,10 @@ export const FloatingBottomToolbar: React.FC = () => {
     <div
       ref={toolbarRef}
       id="figma-floating-toolbar"
-      className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 select-none"
+      onPointerDown={(event) => event.stopPropagation()}
+      className="absolute bottom-2 sm:bottom-5 left-1/2 -translate-x-1/2 z-40 select-none max-w-[calc(100%-12px)]"
     >
-      <div className="bg-white/95 backdrop-blur-md border border-[#e2e8f0] shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-2xl p-1.5 flex items-center gap-1">
+      <div className="bg-white/95 backdrop-blur-md border border-[#e2e8f0] shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-2xl p-1 sm:p-1.5 flex items-center gap-0.5 sm:gap-1 max-w-full overflow-x-auto custom-scrollbar">
         {/* 1. Move / Cursor Tool */}
         <div className="relative">
           <div className="flex items-center rounded-xl overflow-hidden">
@@ -96,6 +98,7 @@ export const FloatingBottomToolbar: React.FC = () => {
             </button>
             <button
               onClick={() => setOpenDropdown(openDropdown === 'move' ? null : 'move')}
+              aria-label="Choose navigation tool"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
                 activeTool === 'select' ? 'text-white/80 hover:text-white' : ''
               }`}
@@ -157,6 +160,7 @@ export const FloatingBottomToolbar: React.FC = () => {
             </button>
             <button
               onClick={() => setOpenDropdown(openDropdown === 'frame' ? null : 'frame')}
+              aria-label="Choose frame preset"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
                 activeTool === 'frame' ? 'text-white/80 hover:text-white' : ''
               }`}
@@ -269,6 +273,7 @@ export const FloatingBottomToolbar: React.FC = () => {
             </button>
             <button
               onClick={() => setOpenDropdown(openDropdown === 'shape' ? null : 'shape')}
+              aria-label="Choose shape tool"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
                 ['rectangle', 'ellipse', 'triangle'].includes(activeTool) ? 'text-white/80 hover:text-white' : ''
               }`}
@@ -317,7 +322,7 @@ export const FloatingBottomToolbar: React.FC = () => {
                   <Triangle size={14} />
                   <span className="font-medium">Polygon / Triangle</span>
                 </div>
-                <span className="text-[10px] text-gray-400 font-mono">T</span>
+                <span className="text-[10px] text-gray-400 font-mono">—</span>
               </button>
             </div>
           )}
@@ -332,7 +337,7 @@ export const FloatingBottomToolbar: React.FC = () => {
                 setTool(activeTool === 'line' ? 'select' : 'line');
                 setOpenDropdown(null);
               }}
-              title="Pen / Line Tool (P)"
+              title="Line Tool (L)"
               className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                 activeTool === 'line'
                   ? 'bg-[#0d99ff] text-white shadow-sm'
@@ -343,6 +348,7 @@ export const FloatingBottomToolbar: React.FC = () => {
             </button>
             <button
               onClick={() => setOpenDropdown(openDropdown === 'pen' ? null : 'pen')}
+              aria-label="Choose line tool"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
                 activeTool === 'line' ? 'text-white/80 hover:text-white' : ''
               }`}
@@ -390,6 +396,7 @@ export const FloatingBottomToolbar: React.FC = () => {
             </button>
             <button
               onClick={() => setOpenDropdown(openDropdown === 'text' ? null : 'text')}
+              aria-label="Choose text tool"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
                 activeTool === 'text' ? 'text-white/80 hover:text-white' : ''
               }`}
@@ -468,6 +475,16 @@ export const FloatingBottomToolbar: React.FC = () => {
           }`}
         >
           <Grid size={15} />
+        </button>
+        <button
+          onClick={() => setRulerVisible(!rulerVisible)}
+          title={`Rulers (${rulerVisible ? 'On' : 'Off'})`}
+          aria-pressed={rulerVisible}
+          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            rulerVisible ? 'text-[#0d99ff] bg-[#0d99ff]/10' : 'text-[#777777] hover:bg-[#f1f5f9]'
+          }`}
+        >
+          <Ruler size={15} />
         </button>
       </div>
     </div>

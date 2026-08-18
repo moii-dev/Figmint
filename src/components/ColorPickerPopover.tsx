@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Pipette, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface ColorPickerPopoverProps {
   color: string;

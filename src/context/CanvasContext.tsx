@@ -16,7 +16,6 @@ import {
 import {
   INITIAL_PROJECTS,
   SAMPLE_BANKING_ELEMENTS,
-  SAMPLE_DESIGN_SYSTEM_ELEMENTS,
 } from '../data/sampleCanvas';
 import {
   getBoundingBox,
@@ -27,12 +26,79 @@ import {
 import {
   reparentElement,
   getWorldPosition,
+  getWorldRect,
   findFrameAtPoint,
   getAllDescendantIds,
+  canReparentElement,
+  getTopLevelSelectionIds,
+  worldToLocalPosition,
 } from '../utils/hierarchy';
 
 const STORAGE_KEY = 'figma_clone_projects_v3';
 const ACTIVE_PROJ_KEY = 'figma_clone_active_proj_id_v3';
+const IMPORTABLE_TYPES = new Set(['frame', 'rectangle', 'ellipse', 'triangle', 'star', 'text', 'line']);
+
+function normalizeImportedElements(value: unknown): CanvasElement[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const seenIds = new Set<string>();
+  const normalized: CanvasElement[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return null;
+    const raw = item as Partial<CanvasElement>;
+    if (
+      typeof raw.id !== 'string' ||
+      !raw.id.trim() ||
+      seenIds.has(raw.id) ||
+      typeof raw.type !== 'string' ||
+      !IMPORTABLE_TYPES.has(raw.type) ||
+      !Number.isFinite(raw.x) ||
+      !Number.isFinite(raw.y) ||
+      !Number.isFinite(raw.width) ||
+      !Number.isFinite(raw.height)
+    ) {
+      return null;
+    }
+
+    seenIds.add(raw.id);
+    normalized.push({
+      ...raw,
+      id: raw.id,
+      name: typeof raw.name === 'string' && raw.name.trim() ? raw.name : raw.type,
+      type: raw.type,
+      x: Number(raw.x),
+      y: Number(raw.y),
+      width: Math.max(1, Number(raw.width)),
+      height: Math.max(1, Number(raw.height)),
+      rotation: Number.isFinite(raw.rotation) ? Number(raw.rotation) : 0,
+      fill: typeof raw.fill === 'string' ? raw.fill : '#0d99ff',
+      fillOpacity: Number.isFinite(raw.fillOpacity) ? Math.max(0, Math.min(1, Number(raw.fillOpacity))) : 1,
+      stroke: typeof raw.stroke === 'string' ? raw.stroke : '#000000',
+      strokeWidth: Number.isFinite(raw.strokeWidth) ? Math.max(0, Number(raw.strokeWidth)) : 0,
+      strokeOpacity: Number.isFinite(raw.strokeOpacity) ? Math.max(0, Math.min(1, Number(raw.strokeOpacity))) : 1,
+      strokeStyle: ['solid', 'dashed', 'dotted'].includes(raw.strokeStyle || '') ? raw.strokeStyle! : 'solid',
+      strokeAlign: ['inside', 'center', 'outside'].includes(raw.strokeAlign || '') ? raw.strokeAlign! : 'inside',
+      cornerRadius: Number.isFinite(raw.cornerRadius) ? Math.max(0, Number(raw.cornerRadius)) : 0,
+      opacity: Number.isFinite(raw.opacity) ? Math.max(0, Math.min(1, Number(raw.opacity))) : 1,
+      visible: raw.visible !== false,
+      locked: raw.locked === true,
+      parentId: typeof raw.parentId === 'string' ? raw.parentId : null,
+    } as CanvasElement);
+  }
+
+  const rootFrameIds = new Set(
+    normalized.filter((element) => element.type === 'frame' && !element.parentId).map((element) => element.id)
+  );
+
+  return normalized.map((element) => ({
+    ...element,
+    parentId:
+      element.type !== 'frame' && element.parentId && rootFrameIds.has(element.parentId)
+        ? element.parentId
+        : null,
+  }));
+}
 
 interface CanvasContextType {
   // Multi-Project Dashboard State
@@ -75,6 +141,7 @@ interface CanvasContextType {
   zoomReset: () => void;
   zoomToFit: () => void;
   setPan: (pan: Point | ((prev: Point) => Point)) => void;
+  setViewportSize: (size: { width: number; height: number }) => void;
   setGridVisible: (visible: boolean | ((prev: boolean) => boolean)) => void;
   setRulerVisible: (visible: boolean | ((prev: boolean) => boolean)) => void;
   setSnapToGrid: (snap: boolean | ((prev: boolean) => boolean)) => void;
@@ -86,7 +153,7 @@ interface CanvasContextType {
   toggleFrameCollapsed: (frameId: string) => void;
 
   // Element CRUD
-  addElement: (element: CanvasElement) => void;
+  addElement: (element: CanvasElement, recordHistory?: boolean) => void;
   updateElement: (id: string, updates: Partial<CanvasElement>, recordHistory?: boolean) => void;
   updateElements: (updates: { id: string; changes: Partial<CanvasElement> }[], recordHistory?: boolean) => void;
   deleteSelected: () => void;
@@ -111,7 +178,7 @@ interface CanvasContextType {
   createShapeAt: (type: ToolType, point: Point, initialSize?: { width: number; height: number }, parentFrameId?: string | null) => CanvasElement;
 
   // Frame Nesting & Dropping
-  autoNestOnDrop: (elementIds: string[]) => void;
+  finishInteraction: (movedElementIds?: string[]) => void;
 
   // History
   undo: () => void;
@@ -172,6 +239,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(true);
   const [activeLeftTab, setActiveLeftTab] = useState<'layers' | 'assets' | 'variables'>('layers');
   const [collapsedFrames, setCollapsedFrames] = useState<Record<string, boolean>>({});
+  const viewportSizeRef = useRef({ width: 900, height: 700 });
 
   // History stack
   const historyRef = useRef<CanvasElement[][]>([elements]);
@@ -214,8 +282,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [elements, zoom, pan, currentProjectId]);
 
   const pushHistory = useCallback((newElements: CanvasElement[]) => {
+    const snapshot = JSON.parse(JSON.stringify(newElements)) as CanvasElement[];
+    const currentSnapshot = historyRef.current[historyIndexRef.current];
+    if (currentSnapshot && JSON.stringify(currentSnapshot) === JSON.stringify(snapshot)) return;
+
     const nextHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
-    nextHistory.push(JSON.parse(JSON.stringify(newElements)));
+    nextHistory.push(snapshot);
     if (nextHistory.length > 50) nextHistory.shift();
     historyRef.current = nextHistory;
     historyIndexRef.current = nextHistory.length - 1;
@@ -411,19 +483,19 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [setZoom]);
 
   const zoomToFit = useCallback(() => {
-    const box = getBoundingBox(elements);
+    const box = getBoundingBox(elements.filter((element) => !element.parentId));
     if (!box) {
       zoomReset();
       return;
     }
-    const canvasWidth = window.innerWidth - 540;
-    const canvasHeight = window.innerHeight - 80;
-    const scaleX = (canvasWidth - 80) / box.width;
-    const scaleY = (canvasHeight - 80) / box.height;
+    const canvasWidth = Math.max(240, viewportSizeRef.current.width);
+    const canvasHeight = Math.max(240, viewportSizeRef.current.height);
+    const scaleX = (canvasWidth - 96) / box.width;
+    const scaleY = (canvasHeight - 140) / box.height;
     const targetZoom = Math.max(0.15, Math.min(1.5, Math.min(scaleX, scaleY)));
 
-    const targetPanX = (canvasWidth - box.width * targetZoom) / 2 - box.x * targetZoom + 240;
-    const targetPanY = (canvasHeight - box.height * targetZoom) / 2 - box.y * targetZoom + 50;
+    const targetPanX = (canvasWidth - box.width * targetZoom) / 2 - box.x * targetZoom;
+    const targetPanY = (canvasHeight - box.height * targetZoom) / 2 - box.y * targetZoom - 20;
 
     setZoom(targetZoom);
     setPanState({ x: targetPanX, y: targetPanY });
@@ -433,15 +505,20 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setPanState((prev) => (typeof panArg === 'function' ? panArg(prev) : panArg));
   }, []);
 
-  const selectElement = useCallback((id: string, multiSelect = false) => {
-    if (multiSelect) {
-      setSelectedIds((prev) =>
-        prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-      );
-    } else {
-      setSelectedIds([id]);
-    }
+  const setViewportSize = useCallback((size: { width: number; height: number }) => {
+    viewportSizeRef.current = size;
   }, []);
+
+  const selectElement = useCallback((id: string, multiSelect = false) => {
+    setSelectedIds((prev) => {
+      const next = multiSelect
+        ? prev.includes(id)
+          ? prev.filter((item) => item !== id)
+          : [...prev, id]
+        : [id];
+      return getTopLevelSelectionIds(next, elements);
+    });
+  }, [elements]);
 
   const clearSelection = useCallback(() => {
     setSelectedIds([]);
@@ -453,10 +530,10 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Element Actions
   const addElement = useCallback(
-    (element: CanvasElement) => {
+    (element: CanvasElement, recordHistory = true) => {
       setElements((prev) => {
         const next = [...prev, element];
-        pushHistory(next);
+        if (recordHistory) pushHistory(next);
         return next;
       });
       setSelectedIds([element.id]);
@@ -573,8 +650,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const targetElement = prev.find((el) => el.id === elementId);
         if (!targetElement) return prev;
 
-        // Prevent self-nesting
-        if (newParentId === elementId) return prev;
+        if (!canReparentElement(targetElement, newParentId, prev)) return prev;
 
         const { x, y, parentId } = reparentElement(targetElement, newParentId, prev);
         const updated = prev.map((el) =>
@@ -596,43 +672,38 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [pushHistory]
   );
 
-  // Auto Nesting when shapes are moved/dropped onto canvas or frames
-  const autoNestOnDrop = useCallback(
-    (elementIds: string[]) => {
+  // Commit one complete pointer interaction and apply frame nesting atomically.
+  const finishInteraction = useCallback(
+    (elementIds: string[] = []) => {
       setElements((prev) => {
-        let changed = false;
-        const next = [...prev];
+        let next = [...prev];
 
         for (const elId of elementIds) {
           const el = next.find((item) => item.id === elId);
-          if (!el || el.type === 'frame') continue; // Frames don't nest inside frames in base auto-nest
+          if (!el || el.type === 'frame') continue;
 
           // Calculate center world coordinate of the element
-          const worldPos = getWorldPosition(el, prev);
+          const worldPos = getWorldPosition(el, next);
           const centerPt: Point = {
             x: worldPos.x + el.width / 2,
             y: worldPos.y + el.height / 2,
           };
 
           // Find if there is a frame at this point
-          const targetFrame = findFrameAtPoint(centerPt, prev, [el.id]);
+          const targetFrame = findFrameAtPoint(centerPt, next, elementIds);
 
           const targetParentId = targetFrame ? targetFrame.id : null;
           if ((el.parentId || null) !== targetParentId) {
-            const { x, y, parentId } = reparentElement(el, targetParentId, prev);
+            const { x, y, parentId } = reparentElement(el, targetParentId, next);
             const index = next.findIndex((item) => item.id === elId);
             if (index !== -1) {
               next[index] = { ...next[index], x, y, parentId };
-              changed = true;
             }
           }
         }
 
-        if (changed) {
-          pushHistory(next);
-          return next;
-        }
-        return prev;
+        pushHistory(next);
+        return next;
       });
     },
     [pushHistory]
@@ -701,54 +772,59 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (selected.length === 0) return prev;
 
         const updates: { id: string; changes: Partial<CanvasElement> }[] = [];
+        const items = selected.map((element) => ({ element, rect: getWorldRect(element, prev) }));
+        const moveToWorld = (element: CanvasElement, worldX: number, worldY: number) => {
+          const local = worldToLocalPosition({ x: worldX, y: worldY }, element.parentId, prev);
+          updates.push({ id: element.id, changes: { x: local.x, y: local.y } });
+        };
 
         if (type === 'left') {
-          const minX = Math.min(...selected.map((el) => el.x));
-          selected.forEach((el) => updates.push({ id: el.id, changes: { x: minX } }));
+          const minX = Math.min(...items.map(({ rect }) => rect.x));
+          items.forEach(({ element, rect }) => moveToWorld(element, minX, rect.y));
         } else if (type === 'right') {
-          const maxRight = Math.max(...selected.map((el) => el.x + el.width));
-          selected.forEach((el) => updates.push({ id: el.id, changes: { x: maxRight - el.width } }));
+          const maxRight = Math.max(...items.map(({ rect }) => rect.x + rect.width));
+          items.forEach(({ element, rect }) => moveToWorld(element, maxRight - rect.width, rect.y));
         } else if (type === 'center') {
-          const minX = Math.min(...selected.map((el) => el.x));
-          const maxX = Math.max(...selected.map((el) => el.x + el.width));
+          const minX = Math.min(...items.map(({ rect }) => rect.x));
+          const maxX = Math.max(...items.map(({ rect }) => rect.x + rect.width));
           const avgCenter = (minX + maxX) / 2;
-          selected.forEach((el) => updates.push({ id: el.id, changes: { x: avgCenter - el.width / 2 } }));
+          items.forEach(({ element, rect }) => moveToWorld(element, avgCenter - rect.width / 2, rect.y));
         } else if (type === 'top') {
-          const minY = Math.min(...selected.map((el) => el.y));
-          selected.forEach((el) => updates.push({ id: el.id, changes: { y: minY } }));
+          const minY = Math.min(...items.map(({ rect }) => rect.y));
+          items.forEach(({ element, rect }) => moveToWorld(element, rect.x, minY));
         } else if (type === 'bottom') {
-          const maxBottom = Math.max(...selected.map((el) => el.y + el.height));
-          selected.forEach((el) => updates.push({ id: el.id, changes: { y: maxBottom - el.height } }));
+          const maxBottom = Math.max(...items.map(({ rect }) => rect.y + rect.height));
+          items.forEach(({ element, rect }) => moveToWorld(element, rect.x, maxBottom - rect.height));
         } else if (type === 'middle') {
-          const minY = Math.min(...selected.map((el) => el.y));
-          const maxY = Math.max(...selected.map((el) => el.y + el.height));
+          const minY = Math.min(...items.map(({ rect }) => rect.y));
+          const maxY = Math.max(...items.map(({ rect }) => rect.y + rect.height));
           const avgMiddle = (minY + maxY) / 2;
-          selected.forEach((el) => updates.push({ id: el.id, changes: { y: avgMiddle - el.height / 2 } }));
+          items.forEach(({ element, rect }) => moveToWorld(element, rect.x, avgMiddle - rect.height / 2));
         } else if (type === 'distribute-h') {
-          if (selected.length < 3) return prev;
-          const sorted = [...selected].sort((a, b) => a.x - b.x);
+          if (items.length < 3) return prev;
+          const sorted = [...items].sort((a, b) => a.rect.x - b.rect.x);
           const first = sorted[0];
           const last = sorted[sorted.length - 1];
-          const totalDistance = last.x + last.width - first.x;
-          const totalShapesWidth = sorted.reduce((sum, item) => sum + item.width, 0);
+          const totalDistance = last.rect.x + last.rect.width - first.rect.x;
+          const totalShapesWidth = sorted.reduce((sum, item) => sum + item.rect.width, 0);
           const gap = (totalDistance - totalShapesWidth) / (sorted.length - 1);
-          let currentX = first.x;
+          let currentX = first.rect.x;
           sorted.forEach((item) => {
-            updates.push({ id: item.id, changes: { x: currentX } });
-            currentX += item.width + gap;
+            moveToWorld(item.element, currentX, item.rect.y);
+            currentX += item.rect.width + gap;
           });
         } else if (type === 'distribute-v') {
-          if (selected.length < 3) return prev;
-          const sorted = [...selected].sort((a, b) => a.y - b.y);
+          if (items.length < 3) return prev;
+          const sorted = [...items].sort((a, b) => a.rect.y - b.rect.y);
           const first = sorted[0];
           const last = sorted[sorted.length - 1];
-          const totalDistance = last.y + last.height - first.y;
-          const totalShapesHeight = sorted.reduce((sum, item) => sum + item.height, 0);
+          const totalDistance = last.rect.y + last.rect.height - first.rect.y;
+          const totalShapesHeight = sorted.reduce((sum, item) => sum + item.rect.height, 0);
           const gap = (totalDistance - totalShapesHeight) / (sorted.length - 1);
-          let currentY = first.y;
+          let currentY = first.rect.y;
           sorted.forEach((item) => {
-            updates.push({ id: item.id, changes: { y: currentY } });
-            currentY += item.height + gap;
+            moveToWorld(item.element, item.rect.x, currentY);
+            currentY += item.rect.height + gap;
           });
         }
 
@@ -788,8 +864,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const spawnPresetFrame = useCallback(
     (preset: DevicePreset, position?: Point) => {
       const defaultPos: Point = position || {
-        x: Math.round((-pan.x + window.innerWidth / 2 - preset.width / 2) / zoom),
-        y: Math.round((-pan.y + window.innerHeight / 2 - preset.height / 2) / zoom),
+        x: Math.round((-pan.x + viewportSizeRef.current.width / 2) / zoom - preset.width / 2),
+        y: Math.round((-pan.y + viewportSizeRef.current.height / 2) / zoom - preset.height / 2),
       };
 
       const newFrame: CanvasElement = {
@@ -902,6 +978,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       historyIndexRef.current -= 1;
       const previousState = historyRef.current[historyIndexRef.current];
       setElements(JSON.parse(JSON.stringify(previousState)));
+      setSelectedIds((ids) => ids.filter((id) => previousState.some((element) => element.id === id)));
       setHistoryTick((t) => t + 1);
     }
   }, []);
@@ -911,23 +988,28 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       historyIndexRef.current += 1;
       const nextState = historyRef.current[historyIndexRef.current];
       setElements(JSON.parse(JSON.stringify(nextState)));
+      setSelectedIds((ids) => ids.filter((id) => nextState.some((element) => element.id === id)));
       setHistoryTick((t) => t + 1);
     }
   }, []);
 
   const exportSelected = useCallback(
     (format: 'png' | 'svg' | 'json', scale = 2) => {
-      const selected = elements.filter((el) => selectedIds.includes(el.id));
+      const exportIds = new Set(selectedIds);
+      selectedIds.forEach((id) => {
+        getAllDescendantIds(id, elements).forEach((descendantId) => exportIds.add(descendantId));
+      });
+      const selected = elements.filter((el) => exportIds.has(el.id));
       const targetElements = selected.length > 0 ? selected : elements;
 
       if (format === 'json') {
         const json = JSON.stringify(targetElements, null, 2);
         downloadFile(json, `${currentProject?.title || 'design'}.json`, 'application/json');
       } else if (format === 'svg') {
-        const svg = generateSvgString(targetElements);
+        const svg = generateSvgString(targetElements, elements);
         downloadFile(svg, `${currentProject?.title || 'design'}.svg`, 'image/svg+xml');
       } else if (format === 'png') {
-        const svg = generateSvgString(targetElements);
+        const svg = generateSvgString(targetElements, elements);
         downloadPngFromSvg(svg, `${currentProject?.title || 'design'}.png`, scale);
       }
     },
@@ -940,10 +1022,10 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const json = JSON.stringify(elements, null, 2);
         downloadFile(json, `${currentProject?.title || 'figma-project'}.json`, 'application/json');
       } else if (format === 'svg') {
-        const svg = generateSvgString(elements);
+        const svg = generateSvgString(elements, elements);
         downloadFile(svg, `${currentProject?.title || 'figma-project'}.svg`, 'image/svg+xml');
       } else if (format === 'png') {
-        const svg = generateSvgString(elements);
+        const svg = generateSvgString(elements, elements);
         downloadPngFromSvg(svg, `${currentProject?.title || 'figma-project'}.png`, scale);
       }
     },
@@ -954,12 +1036,13 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     (jsonString: string): boolean => {
       try {
         const parsed = JSON.parse(jsonString);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setElements(parsed);
-          pushHistory(parsed);
-          setSelectedIds([parsed[0].id]);
-          return true;
-        }
+        const imported = normalizeImportedElements(parsed);
+        if (!imported) return false;
+
+        setElements(imported);
+        pushHistory(imported);
+        setSelectedIds(imported.length > 0 ? [imported[0].id] : []);
+        return true;
       } catch (err) {
         console.error('Failed to parse JSON design:', err);
       }
@@ -1025,13 +1108,32 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
 
           setElements((prev) => {
+            const normalizedSelection = new Set(getTopLevelSelectionIds(selectedIds, prev));
             const next = prev.map((el) =>
-              selectedIds.includes(el.id) ? { ...el, x: el.x + dx, y: el.y + dy } : el
+              normalizedSelection.has(el.id) ? { ...el, x: el.x + dx, y: el.y + dy } : el
             );
             pushHistory(next);
             return next;
           });
         }
+        return;
+      }
+
+      if (e.shiftKey && e.code === 'Digit1') {
+        e.preventDefault();
+        zoomToFit();
+        return;
+      }
+
+      if (e.shiftKey && e.code === 'Digit0') {
+        e.preventDefault();
+        zoomReset();
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setPresentationMode(true);
         return;
       }
 
@@ -1044,7 +1146,6 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setActiveTool('hand');
           break;
         case 'f':
-        case 'a':
           setTool('frame');
           break;
         case 'r':
@@ -1056,8 +1157,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         case 't':
           setActiveTool('text');
           break;
-        case 'p':
-          setPresentationMode(!presentationMode);
+        case 'l':
+          setActiveTool('line');
           break;
         case 'escape':
           setSelectedIds([]);
@@ -1069,7 +1170,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, duplicateSelected, deleteSelected, selectedIds, pushHistory, presentationMode, setTool]);
+  }, [undo, redo, duplicateSelected, deleteSelected, selectedIds, pushHistory, setTool, zoomToFit, zoomReset]);
 
   return (
     <CanvasContext.Provider
@@ -1110,6 +1211,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         zoomReset,
         zoomToFit,
         setPan,
+        setViewportSize,
         setGridVisible,
         setRulerVisible,
         setSnapToGrid,
@@ -1128,7 +1230,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         duplicateSelected,
         reorderElement,
         reparentLayer,
-        autoNestOnDrop,
+        finishInteraction,
         bringToFront,
         sendToBack,
         bringForward,

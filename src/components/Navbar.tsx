@@ -9,32 +9,28 @@ import {
   FolderOpen,
   Check,
   PanelLeft,
+  PanelRight,
   ArrowLeft,
-  Cloud,
   CheckCircle2,
-  Share2,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 
 interface NavbarProps {
   onOpenShortcuts: () => void;
+  isInspectorOpen: boolean;
+  onToggleInspector: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen, onToggleInspector }) => {
   const {
     currentProject,
     setDocumentName,
     openDashboard,
     zoom,
     setZoom,
-    zoomIn,
-    zoomOut,
     zoomReset,
     zoomToFit,
-    presentationMode,
     setPresentationMode,
-    appMode,
-    setAppMode,
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
     exportAll,
@@ -92,18 +88,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts }) => {
   return (
     <header
       id="figma-navbar"
-      className="h-11 bg-white border-b border-[#e6e6e6] flex items-center justify-between px-3 text-[#333333] z-40 select-none"
+      className="h-11 flex-none bg-white border-b border-[#e6e6e6] flex items-center justify-between px-2 sm:px-3 text-[#333333] z-40 select-none gap-1"
     >
       {/* Left: Home / Back to Files + Figma Logo + Document Title ▾ + Sidebar Toggle */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1 min-w-0">
         {/* Back to Home / Dashboard Button */}
         <button
           onClick={openDashboard}
           title="Back to Files (Home Dashboard)"
-          className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#f8fafc] hover:bg-[#e2e8f0] text-gray-700 font-semibold text-xs border border-[#e2e8f0] transition-colors cursor-pointer mr-1"
+          className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#f8fafc] hover:bg-[#e2e8f0] text-gray-700 font-semibold text-xs border border-[#e2e8f0] transition-colors cursor-pointer mr-0.5"
         >
           <ArrowLeft size={13} />
-          <span>Files</span>
+          <span className="hidden sm:inline">Files</span>
         </button>
 
         {/* Figma Multi-color Logo Button */}
@@ -244,7 +240,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts }) => {
         />
 
         {/* Editable Title */}
-        <div className="flex items-center">
+        <div className="flex items-center min-w-0 max-w-[38vw] sm:max-w-[260px]">
           {isEditingName ? (
             <input
               type="text"
@@ -267,9 +263,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts }) => {
             <button
               onClick={() => setIsEditingName(true)}
               title="Click to rename file"
-              className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[#f1f5f9] text-xs font-semibold text-[#222222] transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-md hover:bg-[#f1f5f9] text-xs font-semibold text-[#222222] transition-colors cursor-pointer min-w-0"
             >
-              <span>{currentProject?.title || 'Untitled'}</span>
+              <span className="truncate">{currentProject?.title || 'Untitled'}</span>
               <ChevronDown size={13} className="text-gray-500" />
             </button>
           )}
@@ -296,9 +292,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts }) => {
       </div>
 
       {/* Right: Avatar ▾, Design/Prototype Tabs, Zoom ▾, Play ▶ */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-1 sm:gap-2.5 flex-none">
         {/* User Avatar with Dropdown */}
-        <div className="relative" ref={avatarMenuRef}>
+        <div className="relative hidden md:block" ref={avatarMenuRef}>
           <button
             onClick={() => setIsAvatarMenuOpen(!isAvatarMenuOpen)}
             className="flex items-center gap-1 p-1 rounded-md hover:bg-[#f1f5f9] transition-colors cursor-pointer"
@@ -335,30 +331,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts }) => {
               </button>
             </div>
           )}
-        </div>
-
-        {/* Design / Prototype Mode Segmented Pill */}
-        <div className="flex items-center bg-[#f1f5f9] p-0.5 rounded-lg border border-[#e2e8f0]">
-          <button
-            onClick={() => setAppMode('design')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-              appMode === 'design'
-                ? 'bg-white text-[#111111] shadow-xs'
-                : 'text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Design
-          </button>
-          <button
-            onClick={() => setAppMode('prototype')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-              appMode === 'prototype'
-                ? 'bg-white text-[#111111] shadow-xs'
-                : 'text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            Prototype
-          </button>
         </div>
 
         {/* Zoom Selector Dropdown */}
@@ -408,6 +380,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts }) => {
             </div>
           )}
         </div>
+
+        <button
+          onClick={onToggleInspector}
+          title="Toggle properties panel"
+          aria-label="Toggle properties panel"
+          aria-pressed={isInspectorOpen}
+          className={`w-7 h-7 rounded-md items-center justify-center transition-colors cursor-pointer flex xl:hidden ${
+            isInspectorOpen ? 'bg-[#0d99ff]/10 text-[#0d99ff]' : 'text-gray-600 hover:bg-[#f1f5f9]'
+          }`}
+        >
+          <PanelRight size={16} />
+        </button>
 
         {/* Present / Play Button (▷) */}
         <button

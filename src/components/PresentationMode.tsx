@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { X, ChevronLeft, ChevronRight, Smartphone, Laptop, Maximize } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, ChevronLeft, ChevronRight, Smartphone } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement } from '../types/figma';
-import { hexToRgba, getTrianglePoints } from '../utils/geometry';
+import { hexToRgba, getStarPoints, getTrianglePoints } from '../utils/geometry';
 
 export const PresentationMode: React.FC = () => {
   const { elements, presentationMode, setPresentationMode } = useCanvas();
@@ -10,8 +10,7 @@ export const PresentationMode: React.FC = () => {
   // Find all frames
   const frames = elements.filter((el) => el.type === 'frame');
   const [activeFrameIndex, setActiveFrameIndex] = useState(0);
-
-  if (!presentationMode) return null;
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const currentFrame = frames[activeFrameIndex] || frames[0];
 
@@ -25,15 +24,36 @@ export const PresentationMode: React.FC = () => {
     setActiveFrameIndex((prev) => (prev < frames.length - 1 ? prev + 1 : 0));
   };
 
+  useEffect(() => {
+    if (!presentationMode) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPresentationMode(false);
+      else if (event.key === 'ArrowLeft' && frames.length > 0) {
+        setActiveFrameIndex((prev) => (prev > 0 ? prev - 1 : frames.length - 1));
+      } else if (event.key === 'ArrowRight' && frames.length > 0) {
+        setActiveFrameIndex((prev) => (prev < frames.length - 1 ? prev + 1 : 0));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [frames.length, presentationMode, setPresentationMode]);
+
+  if (!presentationMode) return null;
+
   // Get children of current frame
   const frameChildren = currentFrame
     ? elements.filter((el) => el.parentId === currentFrame.id && el.visible)
     : [];
 
   const renderChildElement = (el: CanvasElement) => {
-    // Relative coordinates to frame
-    const relX = el.x - currentFrame.x;
-    const relY = el.y - currentFrame.y;
+    // Children already store coordinates local to their frame.
+    const relX = el.x;
+    const relY = el.y;
     const fillStyle = hexToRgba(el.fill, el.fillOpacity);
     const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'transparent';
     const strokeDash = el.strokeStyle === 'dashed' ? '6 4' : el.strokeStyle === 'dotted' ? '2 3' : 'none';
@@ -94,12 +114,27 @@ export const PresentationMode: React.FC = () => {
           </svg>
         )}
 
+        {el.type === 'star' && (
+          <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+            <polygon
+              points={getStarPoints(el.width, el.height)}
+              fill={fillStyle}
+              stroke={strokeStyle}
+              strokeWidth={el.strokeWidth}
+              strokeDasharray={strokeDash}
+            />
+          </svg>
+        )}
+
         {el.type === 'text' && (
           <div
             className="w-full h-full flex items-center break-words whitespace-pre-wrap select-none"
             style={{
               fontSize: `${el.fontSize || 14}px`,
               fontWeight: el.fontWeight || 400,
+              fontFamily: el.fontFamily,
+              letterSpacing: `${el.letterSpacing || 0}px`,
+              lineHeight: el.lineHeight || 1.2,
               color: el.fill,
               textAlign: el.textAlign || 'left',
             }}
@@ -107,12 +142,31 @@ export const PresentationMode: React.FC = () => {
             {el.textContent || ''}
           </div>
         )}
+
+        {el.type === 'line' && (
+          <svg className="w-full h-full overflow-visible">
+            <line
+              x1="0"
+              y1="0"
+              x2={el.width}
+              y2={el.height}
+              stroke={fillStyle}
+              strokeWidth={Math.max(1, el.strokeWidth)}
+              strokeDasharray={strokeDash}
+            />
+          </svg>
+        )}
       </div>
     );
   };
 
   return (
-    <div className="fixed inset-0 bg-[#0f0f0f] z-50 flex flex-col items-center justify-center animate-in fade-in duration-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Presentation preview"
+      className="fixed inset-0 bg-[#0f0f0f] z-50 flex flex-col items-center justify-center animate-in fade-in duration-200"
+    >
       {/* Floating Presentation Control Bar */}
       <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-[#1e1e1e]/90 backdrop-blur-md border border-[#383838] rounded-full px-4 py-2 flex items-center gap-3 shadow-2xl z-50 text-white">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-200">
@@ -125,6 +179,7 @@ export const PresentationMode: React.FC = () => {
             <button
               onClick={handlePrev}
               title="Previous Frame"
+              aria-label="Previous frame"
               className="p-1 rounded-full hover:bg-[#333] transition-colors cursor-pointer text-gray-300 hover:text-white"
             >
               <ChevronLeft size={16} />
@@ -135,6 +190,7 @@ export const PresentationMode: React.FC = () => {
             <button
               onClick={handleNext}
               title="Next Frame"
+              aria-label="Next frame"
               className="p-1 rounded-full hover:bg-[#333] transition-colors cursor-pointer text-gray-300 hover:text-white"
             >
               <ChevronRight size={16} />
@@ -143,8 +199,10 @@ export const PresentationMode: React.FC = () => {
         )}
 
         <button
+          ref={closeButtonRef}
           onClick={() => setPresentationMode(false)}
           title="Exit Presentation (Esc)"
+          aria-label="Exit presentation"
           className="ml-2 p-1.5 rounded-full hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors cursor-pointer"
         >
           <X size={16} />

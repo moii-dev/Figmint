@@ -1,4 +1,5 @@
 import { CanvasElement, Point, Rect, SnapGuide } from '../types/figma';
+import { getTopLevelSelectionIds, getWorldRect } from './hierarchy';
 
 /**
  * Generates an SVG path or points for shapes
@@ -58,6 +59,17 @@ export function getBoundingBox(elements: CanvasElement[]): Rect | null {
   };
 }
 
+export function getBoundingBoxFromRects(rects: Rect[]): Rect | null {
+  if (rects.length === 0) return null;
+
+  const minX = Math.min(...rects.map((rect) => rect.x));
+  const minY = Math.min(...rects.map((rect) => rect.y));
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.height));
+
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
 /**
  * Checks if point is inside a rect
  */
@@ -95,12 +107,38 @@ export function doRectsIntersect(a: Rect, b: Rect): boolean {
   );
 }
 
+/** Selects nested objects without returning a frame together with its descendants. */
+export function getMarqueeSelectionIds(box: Rect, elements: CanvasElement[]): string[] {
+  const candidates = elements.filter(
+    (element) => element.visible && !element.locked && doRectsIntersect(box, getWorldRect(element, elements))
+  );
+  const candidateIds = new Set(candidates.map((element) => element.id));
+  const containsRect = (outer: Rect, inner: Rect) =>
+    outer.x <= inner.x &&
+    outer.y <= inner.y &&
+    outer.x + outer.width >= inner.x + inner.width &&
+    outer.y + outer.height >= inner.y + inner.height;
+
+  const hierarchyAwareIds = candidates
+    .filter((element) => {
+      if (element.type !== 'frame') return true;
+      const frameRect = getWorldRect(element, elements);
+      const hasSelectedChild = elements.some(
+        (child) => child.parentId === element.id && candidateIds.has(child.id)
+      );
+      return containsRect(box, frameRect) || !hasSelectedChild;
+    })
+    .map((element) => element.id);
+
+  return getTopLevelSelectionIds(hierarchyAwareIds, elements);
+}
+
 /**
  * Smart snapping: calculates snap lines when dragging or resizing elements
  */
 export function calculateSnapping(
   activeRect: Rect,
-  otherElements: CanvasElement[],
+  otherRects: Rect[],
   threshold = 6
 ): { snappedX: number; snappedY: number; guides: SnapGuide[] } {
   let snappedX = activeRect.x;
@@ -116,8 +154,7 @@ export function calculateSnapping(
   let minDeltaX = threshold + 1;
   let minDeltaY = threshold + 1;
 
-  for (const other of otherElements) {
-    if (!other.visible) continue;
+  for (const other of otherRects) {
     const otherCenterX = other.x + other.width / 2;
     const otherRight = other.x + other.width;
     const otherCenterY = other.y + other.height / 2;
@@ -142,6 +179,9 @@ export function calculateSnapping(
         if (delta < threshold && delta < minDeltaX) {
           minDeltaX = delta;
           snappedX = t.pos - cur.offset;
+          for (let index = guides.length - 1; index >= 0; index -= 1) {
+            if (guides[index].type === 'x') guides.splice(index, 1);
+          }
           guides.push({
             type: 'x',
             position: t.pos,
@@ -171,6 +211,9 @@ export function calculateSnapping(
         if (delta < threshold && delta < minDeltaY) {
           minDeltaY = delta;
           snappedY = t.pos - cur.offset;
+          for (let index = guides.length - 1; index >= 0; index -= 1) {
+            if (guides[index].type === 'y') guides.splice(index, 1);
+          }
           guides.push({
             type: 'y',
             position: t.pos,
@@ -209,11 +252,27 @@ export function hexToRgba(hex: string, opacity = 1): string {
   return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, opacity))})`;
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
 /**
  * Export helpers: Generates an SVG string representation of elements
  */
-export function generateSvgString(elements: CanvasElement[], targetBox?: Rect): string {
-  const box = targetBox || getBoundingBox(elements) || { x: 0, y: 0, width: 800, height: 600 };
+export function generateSvgString(
+  elements: CanvasElement[],
+  allElements: CanvasElement[] = elements,
+  targetBox?: Rect
+): string {
+  const worldRects = elements
+    .filter((element) => element.visible)
+    .map((element) => getWorldRect(element, allElements));
+  const box = targetBox || getBoundingBoxFromRects(worldRects) || { x: 0, y: 0, width: 800, height: 600 };
   const padding = 20;
   const viewBox = `${box.x - padding} ${box.y - padding} ${box.width + padding * 2} ${box.height + padding * 2}`;
 
@@ -222,32 +281,51 @@ export function generateSvgString(elements: CanvasElement[], targetBox?: Rect): 
 
   for (const el of elements) {
     if (!el.visible) continue;
+    const worldRect = getWorldRect(el, allElements);
+    const { x, y, width, height } = worldRect;
     const fillStyle = hexToRgba(el.fill, el.fillOpacity);
     const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'none';
     const strokeDash = el.strokeStyle === 'dashed' ? 'stroke-dasharray="6,4"' : el.strokeStyle === 'dotted' ? 'stroke-dasharray="2,3"' : '';
-    const transform = el.rotation ? `transform="rotate(${el.rotation} ${el.x + el.width / 2} ${el.y + el.height / 2})"` : '';
+    const transform = el.rotation ? `transform="rotate(${el.rotation} ${x + width / 2} ${y + height / 2})"` : '';
     const opacityAttr = el.opacity < 1 ? `opacity="${el.opacity}"` : '';
 
     if (el.type === 'frame' || el.type === 'rectangle') {
       const rx = el.cornerRadius || 0;
-      svgContent += `  <rect x="${el.x}" y="${el.y}" width="${el.width}" height="${el.height}" rx="${rx}" ry="${rx}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
+      svgContent += `  <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
     } else if (el.type === 'ellipse') {
-      const cx = el.x + el.width / 2;
-      const cy = el.y + el.height / 2;
-      const rx = el.width / 2;
-      const ry = el.height / 2;
+      const cx = x + width / 2;
+      const cy = y + height / 2;
+      const rx = width / 2;
+      const ry = height / 2;
       svgContent += `  <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
     } else if (el.type === 'triangle') {
-      const p1 = `${el.x + el.width / 2},${el.y}`;
-      const p2 = `${el.x + el.width},${el.y + el.height}`;
-      const p3 = `${el.x},${el.y + el.height}`;
+      const p1 = `${x + width / 2},${y}`;
+      const p2 = `${x + width},${y + height}`;
+      const p3 = `${x},${y + height}`;
       svgContent += `  <polygon points="${p1} ${p2} ${p3}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
+    } else if (el.type === 'star') {
+      const points = getStarPoints(width, height)
+        .split(' ')
+        .map((point) => {
+          const [pointX, pointY] = point.split(',').map(Number);
+          return `${x + pointX},${y + pointY}`;
+        })
+        .join(' ');
+      svgContent += `  <polygon points="${points}" fill="${fillStyle}" stroke="${strokeStyle}" stroke-width="${el.strokeWidth}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
     } else if (el.type === 'text') {
       const fontSize = el.fontSize || 14;
       const fontWeight = el.fontWeight || 400;
-      svgContent += `  <text x="${el.x}" y="${el.y + fontSize}" font-size="${fontSize}" font-weight="${fontWeight}" fill="${fillStyle}" ${transform} ${opacityAttr}>${el.textContent || ''}</text>\n`;
+      const textAnchor = el.textAlign === 'center' ? 'middle' : el.textAlign === 'right' ? 'end' : 'start';
+      const textX = el.textAlign === 'center' ? x + width / 2 : el.textAlign === 'right' ? x + width : x;
+      const lineHeight = fontSize * (el.lineHeight || 1.2);
+      const lines = (el.textContent || '').split('\n');
+      const family = escapeXml(el.fontFamily || '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif');
+      const tspans = lines
+        .map((line, index) => `<tspan x="${textX}" dy="${index === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
+        .join('');
+      svgContent += `  <text x="${textX}" y="${y + fontSize}" font-size="${fontSize}" font-weight="${fontWeight}" font-family="${family}" text-anchor="${textAnchor}" letter-spacing="${el.letterSpacing || 0}" fill="${fillStyle}" ${transform} ${opacityAttr}>${tspans}</text>\n`;
     } else if (el.type === 'line') {
-      svgContent += `  <line x1="${el.x}" y1="${el.y}" x2="${el.x + el.width}" y2="${el.y + el.height}" stroke="${fillStyle}" stroke-width="${Math.max(1, el.strokeWidth)}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
+      svgContent += `  <line x1="${x}" y1="${y}" x2="${x + width}" y2="${y + height}" stroke="${fillStyle}" stroke-width="${Math.max(1, el.strokeWidth)}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
     }
   }
 

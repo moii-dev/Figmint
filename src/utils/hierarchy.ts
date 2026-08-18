@@ -6,18 +6,21 @@ import { CanvasElement, Point, Rect } from '../types/figma';
  */
 export function getWorldPosition(
   element: CanvasElement,
-  allElements: CanvasElement[]
+  allElements: CanvasElement[],
+  visited = new Set<string>()
 ): Point {
-  if (!element.parentId) {
+  if (!element.parentId || visited.has(element.id)) {
     return { x: element.x, y: element.y };
   }
+
+  visited.add(element.id);
 
   const parent = allElements.find((el) => el.id === element.parentId);
   if (!parent) {
     return { x: element.x, y: element.y };
   }
 
-  const parentWorld = getWorldPosition(parent, allElements);
+  const parentWorld = getWorldPosition(parent, allElements, visited);
   return {
     x: parentWorld.x + element.x,
     y: parentWorld.y + element.y,
@@ -51,7 +54,12 @@ export function findFrameAtPoint(
 ): CanvasElement | null {
   const ignoreSet = new Set(ignoreIds);
   const frames = allElements.filter(
-    (el) => el.type === 'frame' && el.visible && !ignoreSet.has(el.id)
+    (el) =>
+      el.type === 'frame' &&
+      !el.parentId &&
+      el.visible &&
+      !el.locked &&
+      !ignoreSet.has(el.id)
   );
 
   // Iterate backwards from top of stack to bottom
@@ -115,6 +123,63 @@ export function reparentElement(
   };
 }
 
+/** Converts a world-space point to coordinates local to a parent frame. */
+export function worldToLocalPosition(
+  point: Point,
+  parentId: string | null | undefined,
+  allElements: CanvasElement[]
+): Point {
+  if (!parentId) return point;
+
+  const parent = allElements.find((el) => el.id === parentId);
+  if (!parent) return point;
+
+  const parentWorld = getWorldPosition(parent, allElements);
+  return {
+    x: point.x - parentWorld.x,
+    y: point.y - parentWorld.y,
+  };
+}
+
+/**
+ * Removes selected descendants when their ancestor is also selected.
+ * This prevents a child from moving twice together with its frame.
+ */
+export function getTopLevelSelectionIds(
+  selectedIds: string[],
+  allElements: CanvasElement[]
+): string[] {
+  const selected = new Set(selectedIds);
+
+  return selectedIds.filter((id) => {
+    let current = allElements.find((el) => el.id === id);
+    const visited = new Set<string>();
+
+    while (current?.parentId && !visited.has(current.id)) {
+      visited.add(current.id);
+      if (selected.has(current.parentId)) return false;
+      current = allElements.find((el) => el.id === current?.parentId);
+    }
+
+    return true;
+  });
+}
+
+/** Frames are root containers in Figmint; other elements may move between them. */
+export function canReparentElement(
+  element: CanvasElement,
+  newParentId: string | null,
+  allElements: CanvasElement[]
+): boolean {
+  if (!newParentId) return true;
+  if (element.type === 'frame' || element.id === newParentId) return false;
+
+  const parent = allElements.find((el) => el.id === newParentId);
+  if (!parent || parent.type !== 'frame' || parent.parentId) return false;
+
+  return !isAncestor(element.id, newParentId, allElements);
+}
+
 /**
  * Checks if candidate is an ancestor of target element (to prevent circular nesting)
  */
@@ -125,7 +190,9 @@ export function isAncestor(
 ): boolean {
   if (ancestorId === targetId) return true;
   let current = allElements.find((el) => el.id === targetId);
-  while (current && current.parentId) {
+  const visited = new Set<string>();
+  while (current && current.parentId && !visited.has(current.id)) {
+    visited.add(current.id);
     if (current.parentId === ancestorId) return true;
     current = allElements.find((el) => el.id === current?.parentId);
   }
@@ -151,11 +218,14 @@ export function getAllDescendantIds(
 ): string[] {
   const result: string[] = [];
   const queue = [parentId];
+  const visited = new Set<string>([parentId]);
 
   while (queue.length > 0) {
     const currentId = queue.shift()!;
     const children = allElements.filter((el) => el.parentId === currentId);
     for (const child of children) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
       result.push(child.id);
       queue.push(child.id);
     }

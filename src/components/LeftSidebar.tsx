@@ -19,11 +19,8 @@ import {
   ArrowUp,
   ArrowDown,
   Plus,
-  MoreVertical,
-  LogOut,
   FolderInput,
   FolderMinus,
-  Sparkles,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement, ShapeType } from '../types/figma';
@@ -42,7 +39,6 @@ export const LeftSidebar: React.FC = () => {
     sendBackward,
     bringToFront,
     sendToBack,
-    reorderElement,
     reparentLayer,
     addElement,
     activeLeftTab,
@@ -273,6 +269,7 @@ export const LeftSidebar: React.FC = () => {
                   toggleFrameCollapsed(el.id);
                 }}
                 className="w-3.5 h-3.5 flex items-center justify-center text-gray-400 hover:text-gray-700 cursor-pointer"
+                aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${el.name}`}
               >
                 {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
               </button>
@@ -427,7 +424,7 @@ export const LeftSidebar: React.FC = () => {
   return (
     <aside
       id="figma-left-sidebar"
-      className="flex h-full bg-white border-r border-[#e6e6e6] z-30 select-none text-[#333333]"
+      className="absolute inset-y-0 left-0 flex h-full w-[min(268px,86vw)] bg-white border-r border-[#e6e6e6] z-30 select-none text-[#333333] shadow-xl xl:shadow-none xl:relative xl:w-[268px] xl:flex-none"
     >
       {/* 1. Far-left narrow vertical icon strip (Figma UI3 style) */}
       <div className="w-11 border-r border-[#e6e6e6] flex flex-col items-center py-2 gap-2 bg-[#fafafa]">

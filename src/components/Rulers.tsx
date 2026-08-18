@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { useCanvas } from '../context/CanvasContext';
+import { getWorldRect } from '../utils/hierarchy';
 
 interface RulersProps {
   containerWidth: number;
@@ -12,6 +13,7 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
   const leftRulerRef = useRef<HTMLCanvasElement>(null);
 
   const selectedElement = elements.find((el) => selectedIds.includes(el.id));
+  const selectedRect = selectedElement ? getWorldRect(selectedElement, elements) : null;
 
   // Render Top Horizontal Ruler
   useEffect(() => {
@@ -44,16 +46,16 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
     let step = 100;
     if (zoom < 0.2) step = 500;
     else if (zoom < 0.5) step = 200;
-    else if (zoom > 2) step = 50;
     else if (zoom > 4) step = 20;
+    else if (zoom > 2) step = 50;
 
     const minWorldX = Math.floor((-pan.x) / (zoom * step)) * step;
     const maxWorldX = Math.ceil((width - pan.x) / (zoom * step)) * step;
 
     // Draw Selected Element Highlight Range
-    if (selectedElement) {
-      const selStartX = selectedElement.x * zoom + pan.x;
-      const selEndX = (selectedElement.x + selectedElement.width) * zoom + pan.x;
+    if (selectedRect) {
+      const selStartX = selectedRect.x * zoom + pan.x;
+      const selEndX = (selectedRect.x + selectedRect.width) * zoom + pan.x;
 
       ctx.fillStyle = 'rgba(13, 153, 255, 0.15)';
       ctx.fillRect(Math.max(0, selStartX), 0, Math.max(2, selEndX - selStartX), height);
@@ -80,9 +82,9 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
       ctx.stroke();
 
       // Number label
-      const isSelectedBound = selectedElement && (
-        Math.round(worldX) === Math.round(selectedElement.x) ||
-        Math.round(worldX) === Math.round(selectedElement.x + selectedElement.width)
+      const isSelectedBound = selectedRect && (
+        Math.round(worldX) === Math.round(selectedRect.x) ||
+        Math.round(worldX) === Math.round(selectedRect.x + selectedRect.width)
       );
 
       ctx.fillStyle = isSelectedBound ? '#0d99ff' : '#888888';
@@ -110,9 +112,9 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
     }
 
     // Specifically draw selected element bounds if they aren't on exact step multiples
-    if (selectedElement) {
-      const startX = selectedElement.x;
-      const endX = selectedElement.x + selectedElement.width;
+    if (selectedRect) {
+      const startX = selectedRect.x;
+      const endX = selectedRect.x + selectedRect.width;
 
       [startX, endX].forEach((boundX) => {
         const screenX = Math.round(boundX * zoom + pan.x) + 0.5;
@@ -132,7 +134,7 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
         }
       });
     }
-  }, [containerWidth, zoom, pan, selectedElement]);
+  }, [containerWidth, zoom, pan, selectedRect]);
 
   // Render Left Vertical Ruler
   useEffect(() => {
@@ -165,16 +167,16 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
     let step = 100;
     if (zoom < 0.2) step = 500;
     else if (zoom < 0.5) step = 200;
-    else if (zoom > 2) step = 50;
     else if (zoom > 4) step = 20;
+    else if (zoom > 2) step = 50;
 
     const minWorldY = Math.floor((-pan.y) / (zoom * step)) * step;
     const maxWorldY = Math.ceil((height - pan.y) / (zoom * step)) * step;
 
     // Draw Selected Element Highlight Range
-    if (selectedElement) {
-      const selStartY = selectedElement.y * zoom + pan.y;
-      const selEndY = (selectedElement.y + selectedElement.height) * zoom + pan.y;
+    if (selectedRect) {
+      const selStartY = selectedRect.y * zoom + pan.y;
+      const selEndY = (selectedRect.y + selectedRect.height) * zoom + pan.y;
 
       ctx.fillStyle = 'rgba(13, 153, 255, 0.15)';
       ctx.fillRect(0, Math.max(0, selStartY), width, Math.max(2, selEndY - selStartY));
@@ -205,9 +207,9 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
       ctx.translate(width - 10, screenY);
       ctx.rotate(-Math.PI / 2);
 
-      const isSelectedBound = selectedElement && (
-        Math.round(worldY) === Math.round(selectedElement.y) ||
-        Math.round(worldY) === Math.round(selectedElement.y + selectedElement.height)
+      const isSelectedBound = selectedRect && (
+        Math.round(worldY) === Math.round(selectedRect.y) ||
+        Math.round(worldY) === Math.round(selectedRect.y + selectedRect.height)
       );
 
       ctx.fillStyle = isSelectedBound ? '#0d99ff' : '#888888';
@@ -236,9 +238,9 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
     }
 
     // Specifically draw selected element bounds
-    if (selectedElement) {
-      const startY = selectedElement.y;
-      const endY = selectedElement.y + selectedElement.height;
+    if (selectedRect) {
+      const startY = selectedRect.y;
+      const endY = selectedRect.y + selectedRect.height;
 
       [startY, endY].forEach((boundY) => {
         const screenY = Math.round(boundY * zoom + pan.y) + 0.5;
@@ -263,7 +265,7 @@ export const Rulers: React.FC<RulersProps> = ({ containerWidth, containerHeight 
         }
       });
     }
-  }, [containerHeight, zoom, pan, selectedElement]);
+  }, [containerHeight, zoom, pan, selectedRect]);
 
   return (
     <>

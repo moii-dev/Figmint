@@ -6,31 +6,17 @@ import {
   AlignVerticalSpaceAround,
   AlignHorizontalSpaceAround,
   AlignJustify,
-  ChevronDown,
-  ChevronRight,
-  Code2,
-  Component,
-  Moon,
-  Lock,
-  Unlock,
   Eye,
   EyeOff,
   Plus,
-  Minus,
   Trash2,
   Download,
-  HelpCircle,
   Link,
   Unlink,
   RotateCw,
-  Sparkles,
   Droplet,
-  Grid,
-  Maximize2,
   Square,
-  ArrowRight,
-  ArrowDown,
-  Layers,
+  X,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement, ShapeType } from '../types/figma';
@@ -38,9 +24,11 @@ import { ColorPickerPopover } from './ColorPickerPopover';
 
 interface RightSidebarProps {
   onOpenShortcuts: () => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) => {
+export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isOpen, onClose }) => {
   const {
     elements,
     selectedIds,
@@ -51,12 +39,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
 
   const [activeColorPicker, setActiveColorPicker] = useState<'fill' | 'stroke' | 'shadow' | null>(null);
   const [aspectLocked, setAspectLocked] = useState(false);
-  const [individualCornersOpen, setIndividualCornersOpen] = useState(false);
-  const [isDevMode, setIsDevMode] = useState(false);
   const [isStrokeOpen, setIsStrokeOpen] = useState(true);
   const [isEffectsOpen, setIsEffectsOpen] = useState(true);
   const [isExportOpen, setIsExportOpen] = useState(true);
-  const [isLayoutGuideOpen, setIsLayoutGuideOpen] = useState(false);
 
   const selectedElements = elements.filter((el) => selectedIds.includes(el.id));
   const primaryElement = selectedElements[0] as CanvasElement | undefined;
@@ -65,10 +50,13 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
     return (
       <aside
         id="figma-right-sidebar"
-        className="w-72 bg-white border-l border-[#e6e6e6] flex flex-col h-full text-[#333333] z-30 select-none"
+        className={`absolute inset-y-0 right-0 w-[min(288px,88vw)] bg-white border-l border-[#e6e6e6] flex-col h-full text-[#333333] z-30 select-none shadow-xl xl:shadow-none xl:relative xl:w-72 xl:flex-none ${isOpen ? 'flex' : 'hidden xl:flex'}`}
       >
         <div className="p-3 border-b border-[#e6e6e6] flex items-center justify-between">
           <span className="text-xs font-semibold text-gray-700">Document</span>
+          <button onClick={onClose} aria-label="Close properties panel" className="p-1 rounded-md hover:bg-gray-100 xl:hidden">
+            <X size={16} />
+          </button>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-400">
           <div className="w-10 h-10 rounded-2xl bg-[#f5f5f5] flex items-center justify-center mb-2 text-gray-400">
@@ -94,7 +82,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
   }
 
   const isShape = ['rectangle', 'frame'].includes(primaryElement.type);
-  const isText = primaryElement.type === 'text';
 
   const handleUpdate = (changes: Partial<CanvasElement>) => {
     updateElement(primaryElement.id, changes);
@@ -122,45 +109,19 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
   return (
     <aside
       id="figma-right-sidebar"
-      className="w-72 bg-white border-l border-[#e6e6e6] flex flex-col h-full text-[#333333] z-30 select-none custom-scrollbar overflow-y-auto relative"
+      className={`absolute inset-y-0 right-0 w-[min(288px,88vw)] bg-white border-l border-[#e6e6e6] flex-col h-full text-[#333333] z-30 select-none custom-scrollbar overflow-y-auto shadow-xl xl:shadow-none xl:relative xl:w-72 xl:flex-none ${isOpen ? 'flex' : 'hidden xl:flex'}`}
     >
       {/* 1. Header Toolbar */}
       <div className="p-2.5 border-b border-[#e6e6e6] flex items-center justify-between bg-white sticky top-0 z-20">
         <div className="flex items-center gap-1">
-          <button className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[#f1f5f9] text-xs font-semibold text-gray-800 transition-colors cursor-pointer">
+          <div className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-gray-800">
             <span>{getTypeName(primaryElement.type)}</span>
-            <ChevronDown size={12} className="text-gray-500" />
-          </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-0.5">
-          {/* Dev Mode toggle </> */}
-          <button
-            onClick={() => setIsDevMode(!isDevMode)}
-            title={`Dev Mode (${isDevMode ? 'On' : 'Off'})`}
-            className={`w-7 h-7 rounded-md flex items-center justify-center text-xs transition-colors cursor-pointer ${
-              isDevMode ? 'bg-[#0d99ff] text-white' : 'text-gray-600 hover:bg-[#f1f5f9]'
-            }`}
-          >
-            <Code2 size={14} />
-          </button>
-
-          {/* Component icon */}
-          <button
-            title="Create Component"
-            className="w-7 h-7 rounded-md flex items-center justify-center text-gray-600 hover:bg-[#f1f5f9] transition-colors cursor-pointer"
-          >
-            <Component size={14} />
-          </button>
-
-          {/* Mask icon */}
-          <button
-            title="Use as Mask"
-            className="w-7 h-7 rounded-md flex items-center justify-center text-gray-600 hover:bg-[#f1f5f9] transition-colors cursor-pointer"
-          >
-            <Moon size={14} />
-          </button>
-        </div>
+        <button onClick={onClose} aria-label="Close properties panel" className="p-1 rounded-md hover:bg-gray-100 xl:hidden">
+          <X size={16} />
+        </button>
       </div>
 
       <div className="p-3 space-y-4 text-xs">
@@ -221,6 +182,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             <div className="flex items-center bg-[#f8fafc] border border-[#e2e8f0] focus-within:border-[#0d99ff] focus-within:bg-white rounded-lg px-2 py-1">
               <span className="text-gray-400 font-mono text-[11px] mr-1.5 select-none">X</span>
               <input
+                aria-label="X position"
                 type="number"
                 value={Math.round(primaryElement.x)}
                 onChange={(e) => handleUpdate({ x: Number(e.target.value) })}
@@ -231,6 +193,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             <div className="flex items-center bg-[#f8fafc] border border-[#e2e8f0] focus-within:border-[#0d99ff] focus-within:bg-white rounded-lg px-2 py-1">
               <span className="text-gray-400 font-mono text-[11px] mr-1.5 select-none">Y</span>
               <input
+                aria-label="Y position"
                 type="number"
                 value={Math.round(primaryElement.y)}
                 onChange={(e) => handleUpdate({ y: Number(e.target.value) })}
@@ -244,6 +207,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             <div className="flex items-center bg-[#f8fafc] border border-[#e2e8f0] focus-within:border-[#0d99ff] focus-within:bg-white rounded-lg px-2 py-1">
               <span className="text-gray-400 font-mono text-[11px] mr-1.5 select-none">∠</span>
               <input
+                aria-label="Rotation"
                 type="number"
                 value={Math.round(primaryElement.rotation || 0)}
                 onChange={(e) => handleUpdate({ rotation: Number(e.target.value) % 360 })}
@@ -262,16 +226,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
               </button>
               <button
                 onClick={() => handleUpdate({ rotation: ((primaryElement.rotation || 0) + 180) % 360 })}
-                title="Flip"
+                title="Rotate 180°"
                 className="p-1 rounded hover:bg-white text-gray-600 transition-colors cursor-pointer font-bold text-xs"
               >
                 ⇋
-              </button>
-              <button
-                title="Absolute Position"
-                className="p-1 rounded hover:bg-white text-[#0d99ff] transition-colors cursor-pointer font-bold text-xs"
-              >
-                ⊡
               </button>
             </div>
           </div>
@@ -290,6 +248,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             <div className="flex-1 flex items-center bg-[#f8fafc] border border-[#e2e8f0] focus-within:border-[#0d99ff] focus-within:bg-white rounded-lg px-2 py-1">
               <span className="text-gray-400 font-mono text-[11px] mr-1.5 select-none">W</span>
               <input
+                aria-label="Width"
                 type="number"
                 min="1"
                 value={Math.round(primaryElement.width)}
@@ -321,6 +280,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             <div className="flex-1 flex items-center bg-[#f8fafc] border border-[#e2e8f0] focus-within:border-[#0d99ff] focus-within:bg-white rounded-lg px-2 py-1">
               <span className="text-gray-400 font-mono text-[11px] mr-1.5 select-none">H</span>
               <input
+                aria-label="Height"
                 type="number"
                 min="1"
                 value={Math.round(primaryElement.height)}
@@ -370,6 +330,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             {/* Opacity */}
             <div className="flex items-center bg-[#f8fafc] border border-[#e2e8f0] focus-within:border-[#0d99ff] focus-within:bg-white rounded-lg px-2 py-1">
               <input
+                aria-label="Layer opacity"
                 type="number"
                 min="0"
                 max="100"
@@ -385,42 +346,19 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
               <div className="flex items-center bg-[#f8fafc] border border-[#e2e8f0] focus-within:border-[#0d99ff] focus-within:bg-white rounded-lg px-2 py-1">
                 <span className="text-gray-400 font-mono text-[10px] mr-1.5 select-none">⌒</span>
                 <input
+                  aria-label="Corner radius"
                   type="number"
                   min="0"
                   value={primaryElement.cornerRadius || 0}
                   onChange={(e) => handleUpdate({ cornerRadius: Math.max(0, Number(e.target.value)) })}
                   className="w-full bg-transparent text-xs font-mono text-gray-800 outline-none"
                 />
-                <button
-                  onClick={() => setIndividualCornersOpen(!individualCornersOpen)}
-                  title="Independent corners"
-                  className="text-gray-400 hover:text-gray-700 ml-1"
-                >
-                  <Maximize2 size={11} />
-                </button>
               </div>
             ) : (
               <div />
             )}
           </div>
 
-          {/* Individual Corners sub-panel */}
-          {individualCornersOpen && isShape && (
-            <div className="grid grid-cols-4 gap-1 p-2 bg-[#f8fafc] rounded-lg border border-[#e2e8f0]">
-              {(['tl', 'tr', 'br', 'bl'] as const).map((corner) => (
-                <div key={corner} className="flex flex-col items-center">
-                  <span className="text-[9px] text-gray-400 font-mono uppercase">{corner}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={primaryElement.cornerRadius || 0}
-                    onChange={(e) => handleUpdate({ cornerRadius: Math.max(0, Number(e.target.value)) })}
-                    className="w-full bg-white border border-[#e2e8f0] text-center text-xs font-mono rounded py-0.5 outline-none text-gray-800"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="h-[1px] bg-[#e6e6e6]" />
@@ -434,6 +372,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setActiveColorPicker(activeColorPicker === 'fill' ? null : 'fill')}
+                aria-label="Open fill color picker"
                 className="w-5 h-5 rounded hover:bg-[#f1f5f9] flex items-center justify-center text-gray-600 transition-colors cursor-pointer"
               >
                 <Plus size={13} />
@@ -446,12 +385,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             {/* Swatch */}
             <button
               onClick={() => setActiveColorPicker(activeColorPicker === 'fill' ? null : 'fill')}
+              aria-label="Edit fill color"
               className="w-6 h-6 rounded-md border border-black/15 shadow-xs flex-shrink-0 cursor-pointer"
               style={{ backgroundColor: primaryElement.fill, opacity: primaryElement.fillOpacity }}
             />
 
             {/* Hex Input */}
             <input
+              aria-label="Fill color hex"
               type="text"
               value={primaryElement.fill.toUpperCase().replace('#', '')}
               onChange={(e) => {
@@ -466,6 +407,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             {/* Opacity */}
             <div className="flex items-center ml-auto">
               <input
+                aria-label="Fill opacity"
                 type="number"
                 min="0"
                 max="100"
@@ -479,6 +421,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             {/* Visibility toggle */}
             <button
               onClick={() => handleUpdate({ fillOpacity: primaryElement.fillOpacity === 0 ? 1 : 0 })}
+              aria-label={primaryElement.fillOpacity === 0 ? 'Show fill' : 'Hide fill'}
               className="text-gray-400 hover:text-gray-700 p-0.5"
             >
               {primaryElement.fillOpacity === 0 ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -514,6 +457,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
                 handleUpdate({ strokeWidth: (primaryElement.strokeWidth || 0) + 1 });
               }}
               className="w-5 h-5 rounded hover:bg-[#f1f5f9] flex items-center justify-center text-gray-600 transition-colors cursor-pointer"
+              aria-label="Increase stroke width"
             >
               <Plus size={13} />
             </button>
@@ -523,11 +467,13 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
             <div className="flex items-center gap-2 bg-[#f8fafc] p-1.5 rounded-lg border border-[#e2e8f0]">
               <button
                 onClick={() => setActiveColorPicker(activeColorPicker === 'stroke' ? null : 'stroke')}
+                aria-label="Edit stroke color"
                 className="w-6 h-6 rounded-md border border-black/15 shadow-xs flex-shrink-0 cursor-pointer"
                 style={{ backgroundColor: primaryElement.stroke, opacity: primaryElement.strokeOpacity }}
               />
 
               <input
+                aria-label="Stroke color hex"
                 type="text"
                 value={primaryElement.stroke.toUpperCase().replace('#', '')}
                 onChange={(e) => {
@@ -542,6 +488,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
               <div className="flex items-center ml-auto">
                 <span className="text-gray-400 text-[10px] mr-1 font-mono">W:</span>
                 <input
+                  aria-label="Stroke width"
                   type="number"
                   min="0"
                   max="40"
@@ -585,6 +532,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
                 }
               }}
               className="w-5 h-5 rounded hover:bg-[#f1f5f9] flex items-center justify-center text-gray-600 transition-colors cursor-pointer"
+              aria-label="Add drop shadow"
             >
               <Plus size={13} />
             </button>
@@ -596,6 +544,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
                 <span className="font-semibold text-gray-700">Drop Shadow</span>
                 <button
                   onClick={() => handleUpdate({ shadow: undefined })}
+                  aria-label="Remove drop shadow"
                   className="text-gray-400 hover:text-red-500"
                 >
                   <Trash2 size={12} />
@@ -606,6 +555,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
                 <div>
                   <span className="text-gray-400 font-mono">X</span>
                   <input
+                    aria-label="Shadow X offset"
                     type="number"
                     value={primaryElement.shadow.x}
                     onChange={(e) => handleUpdate({ shadow: { ...primaryElement.shadow!, x: Number(e.target.value) } })}
@@ -615,6 +565,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
                 <div>
                   <span className="text-gray-400 font-mono">Y</span>
                   <input
+                    aria-label="Shadow Y offset"
                     type="number"
                     value={primaryElement.shadow.y}
                     onChange={(e) => handleUpdate({ shadow: { ...primaryElement.shadow!, y: Number(e.target.value) } })}
@@ -624,6 +575,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
                 <div>
                   <span className="text-gray-400 font-mono">Blur</span>
                   <input
+                    aria-label="Shadow blur"
                     type="number"
                     min="0"
                     value={primaryElement.shadow.blur}
@@ -634,6 +586,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
                 <div>
                   <span className="text-gray-400 font-mono">Spread</span>
                   <input
+                    aria-label="Shadow spread"
                     type="number"
                     value={primaryElement.shadow.spread}
                     onChange={(e) => handleUpdate({ shadow: { ...primaryElement.shadow!, spread: Number(e.target.value) } })}
@@ -662,6 +615,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts }) =
                 exportSelected('png', 2);
               }}
               className="w-5 h-5 rounded hover:bg-[#f1f5f9] flex items-center justify-center text-gray-600 transition-colors cursor-pointer"
+              aria-label="Quick export PNG"
             >
               <Plus size={13} />
             </button>
