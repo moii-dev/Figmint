@@ -25,6 +25,7 @@ import {
   getSvgGradientId,
   getVisibleGradients,
 } from '../utils/gradient';
+import { getCssStrokeOverlayStyle } from '../utils/stroke';
 
 interface DragElementSnapshot {
   id: string;
@@ -594,41 +595,29 @@ export const Canvas: React.FC = () => {
     if (el.type === 'rectangle') {
       return (
         <div
-          className="w-full h-full"
+          className="relative w-full h-full"
           style={{
             ...fillCss,
-            borderWidth: `${el.strokeWidth}px`,
-            borderColor: strokeStyle,
-            borderStyle:
-              el.strokeStyle === 'dashed'
-                ? 'dashed'
-                : el.strokeStyle === 'dotted'
-                ? 'dotted'
-                : 'solid',
             borderRadius: el.cornerRadius ? `${el.cornerRadius}px` : '0px',
             boxShadow: boxShadowStyle,
           }}
-        />
+        >
+          {el.strokeWidth > 0 && <div style={getCssStrokeOverlayStyle(el, strokeStyle)} />}
+        </div>
       );
     }
 
     if (el.type === 'ellipse') {
       return (
         <div
-          className="w-full h-full rounded-full"
+          className="relative w-full h-full rounded-full"
           style={{
             ...fillCss,
-            borderWidth: `${el.strokeWidth}px`,
-            borderColor: strokeStyle,
-            borderStyle:
-              el.strokeStyle === 'dashed'
-                ? 'dashed'
-                : el.strokeStyle === 'dotted'
-                ? 'dotted'
-                : 'solid',
             boxShadow: boxShadowStyle,
           }}
-        />
+        >
+          {el.strokeWidth > 0 && <div style={getCssStrokeOverlayStyle(el, strokeStyle)} />}
+        </div>
       );
     }
 
@@ -741,6 +730,8 @@ export const Canvas: React.FC = () => {
                 lineHeight: el.lineHeight || 1.2,
                 color: fillStyle,
                 textAlign: el.textAlign || 'left',
+                WebkitTextStroke: el.strokeWidth > 0 ? `${el.strokeWidth}px ${strokeStyle}` : undefined,
+                paintOrder: 'stroke fill',
               }}
             />
           ) : (
@@ -759,6 +750,8 @@ export const Canvas: React.FC = () => {
                   : undefined,
                 backgroundClip: visibleGradients.length ? 'text' : undefined,
                 WebkitBackgroundClip: visibleGradients.length ? 'text' : undefined,
+                WebkitTextStroke: el.strokeWidth > 0 ? `${el.strokeWidth}px ${strokeStyle}` : undefined,
+                paintOrder: 'stroke fill',
               }}
             >
               {el.textContent || 'Double click to edit'}
@@ -777,11 +770,11 @@ export const Canvas: React.FC = () => {
             y1="0"
             x2={el.width}
             y2={el.height}
-            stroke={fillStyle}
+            stroke={el.strokeWidth > 0 ? strokeStyle : fillStyle}
             strokeWidth={Math.max(1, el.strokeWidth)}
             strokeDasharray={strokeDash}
           />
-          {svgGradients.map((gradient) => (
+          {el.strokeWidth === 0 && svgGradients.map((gradient) => (
             <line
               key={gradient.id}
               x1="0"
@@ -915,14 +908,6 @@ export const Canvas: React.FC = () => {
             className="w-full h-full absolute inset-0 pointer-events-auto"
             style={{
               ...fillCss,
-              borderWidth: `${el.strokeWidth}px`,
-              borderColor: strokeStyle,
-              borderStyle:
-                el.strokeStyle === 'dashed'
-                  ? 'dashed'
-                  : el.strokeStyle === 'dotted'
-                  ? 'dotted'
-                  : 'solid',
               borderRadius: el.cornerRadius ? `${el.cornerRadius}px` : '0px',
               boxShadow: boxShadowStyle,
               overflow: el.clipContent ? 'hidden' : 'visible',
@@ -931,6 +916,10 @@ export const Canvas: React.FC = () => {
             {/* Direct nested children rendered inside this frame DOM container */}
             {children.map((child, childIndex) => renderNestedElement(child, childIndex))}
           </div>
+
+          {el.strokeWidth > 0 && (
+            <div className="absolute inset-0 z-[2]" style={getCssStrokeOverlayStyle(el, strokeStyle)} />
+          )}
 
           {/* Transform Bounding Box for single selected Frame */}
           {isSingleSelected && (

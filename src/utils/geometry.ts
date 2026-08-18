@@ -339,7 +339,7 @@ export function generateSvgString(
           .join(' ');
         return `  <polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} ${transform} ${opacityAttr} />\n`;
       }
-      if (el.type === 'text' && !outline) {
+      if (el.type === 'text') {
         const fontSize = el.fontSize || 14;
         const fontWeight = el.fontWeight || 400;
         const textAnchor = el.textAlign === 'center' ? 'middle' : el.textAlign === 'right' ? 'end' : 'start';
@@ -350,7 +350,10 @@ export function generateSvgString(
           .split('\n')
           .map((line, index) => `<tspan x="${textX}" dy="${index === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
           .join('');
-        return `  <text x="${textX}" y="${y + fontSize}" font-size="${fontSize}" font-weight="${fontWeight}" font-family="${family}" text-anchor="${textAnchor}" letter-spacing="${el.letterSpacing || 0}" fill="${paint}" ${transform} ${opacityAttr}>${tspans}</text>\n`;
+        const textFill = outline ? 'none' : paint;
+        const textStroke = outline ? strokeStyle : 'none';
+        const textStrokeWidth = outline ? el.strokeWidth : 0;
+        return `  <text x="${textX}" y="${y + fontSize}" font-size="${fontSize}" font-weight="${fontWeight}" font-family="${family}" text-anchor="${textAnchor}" letter-spacing="${el.letterSpacing || 0}" fill="${textFill}" stroke="${textStroke}" stroke-width="${textStrokeWidth}" paint-order="stroke fill" ${transform} ${opacityAttr}>${tspans}</text>\n`;
       }
       if (el.type === 'line' && !outline) {
         return `  <line x1="${x}" y1="${y}" x2="${x + width}" y2="${y + height}" stroke="${paint}" stroke-width="${Math.max(1, el.strokeWidth)}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
@@ -358,11 +361,13 @@ export function generateSvgString(
       return '';
     };
 
-    svgContent += renderShape(fillStyle, 1);
-    for (const gradient of [...gradients].reverse()) {
-      svgContent += renderShape(`url(#${getSvgGradientId('export', el.id, gradient.id)})`, gradient.opacity);
+    svgContent += renderShape(el.type === 'line' && el.strokeWidth > 0 ? strokeStyle : fillStyle, 1);
+    if (el.type !== 'line' || el.strokeWidth === 0) {
+      for (const gradient of [...gradients].reverse()) {
+        svgContent += renderShape(`url(#${getSvgGradientId('export', el.id, gradient.id)})`, gradient.opacity);
+      }
     }
-    if (!['text', 'line'].includes(el.type) && el.strokeWidth > 0) {
+    if (el.type !== 'line' && el.strokeWidth > 0) {
       svgContent += renderShape('none', 1, true);
     }
     svgContent += `  </g>\n`;

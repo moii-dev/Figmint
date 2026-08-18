@@ -9,6 +9,7 @@ import {
   getSvgGradientId,
   getVisibleGradients,
 } from '../utils/gradient';
+import { getCssStrokeOverlayStyle } from '../utils/stroke';
 
 export const PresentationMode: React.FC = () => {
   const { elements, presentationMode, setPresentationMode } = useCanvas();
@@ -88,27 +89,27 @@ export const PresentationMode: React.FC = () => {
       >
         {(el.type === 'rectangle' || el.type === 'frame') && (
           <div
-            className="w-full h-full"
+            className="relative w-full h-full"
             style={{
               ...fillCss,
-              borderWidth: `${el.strokeWidth}px`,
-              borderColor: strokeStyle,
               borderRadius: el.cornerRadius ? `${el.cornerRadius}px` : '0px',
               boxShadow: boxShadowStyle,
             }}
-          />
+          >
+            {el.strokeWidth > 0 && <div style={getCssStrokeOverlayStyle(el, strokeStyle)} />}
+          </div>
         )}
 
         {el.type === 'ellipse' && (
           <div
-            className="w-full h-full rounded-full"
+            className="relative w-full h-full rounded-full"
             style={{
               ...fillCss,
-              borderWidth: `${el.strokeWidth}px`,
-              borderColor: strokeStyle,
               boxShadow: boxShadowStyle,
             }}
-          />
+          >
+            {el.strokeWidth > 0 && <div style={getCssStrokeOverlayStyle(el, strokeStyle)} />}
+          </div>
         )}
 
         {el.type === 'triangle' && (
@@ -181,6 +182,8 @@ export const PresentationMode: React.FC = () => {
                 : undefined,
               backgroundClip: visibleGradients.length ? 'text' : undefined,
               WebkitBackgroundClip: visibleGradients.length ? 'text' : undefined,
+              WebkitTextStroke: el.strokeWidth > 0 ? `${el.strokeWidth}px ${strokeStyle}` : undefined,
+              paintOrder: 'stroke fill',
             }}
           >
             {el.textContent || ''}
@@ -195,11 +198,11 @@ export const PresentationMode: React.FC = () => {
               y1="0"
               x2={el.width}
               y2={el.height}
-              stroke={fillStyle}
+              stroke={el.strokeWidth > 0 ? strokeStyle : fillStyle}
               strokeWidth={Math.max(1, el.strokeWidth)}
               strokeDasharray={strokeDash}
             />
-            {svgGradients.map((gradient) => (
+            {el.strokeWidth === 0 && svgGradients.map((gradient) => (
               <line
                 key={gradient.id}
                 x1="0"
@@ -272,14 +275,10 @@ export const PresentationMode: React.FC = () => {
         <div className="relative max-h-[85vh] max-w-[90vw] overflow-auto flex items-center justify-center p-6">
           <div
             id={`presentation-frame-${currentFrame.id}`}
-            className="relative overflow-hidden shadow-2xl transition-all duration-300"
+            className="relative shadow-2xl transition-all duration-300"
             style={{
               width: `${currentFrame.width}px`,
               height: `${currentFrame.height}px`,
-              ...getElementCssFill(currentFrame),
-              borderRadius: `${currentFrame.cornerRadius || 0}px`,
-              borderWidth: `${currentFrame.strokeWidth}px`,
-              borderColor: currentFrame.stroke,
               transform: `scale(${Math.min(
                 1,
                 Math.min(
@@ -290,7 +289,23 @@ export const PresentationMode: React.FC = () => {
               transformOrigin: 'center center',
             }}
           >
-            {frameChildren.map(renderChildElement)}
+            <div
+              className="absolute inset-0 overflow-hidden"
+              style={{
+                ...getElementCssFill(currentFrame),
+                borderRadius: `${currentFrame.cornerRadius || 0}px`,
+              }}
+            >
+              {frameChildren.map(renderChildElement)}
+            </div>
+            {currentFrame.strokeWidth > 0 && (
+              <div
+                style={getCssStrokeOverlayStyle(
+                  currentFrame,
+                  hexToRgba(currentFrame.stroke, currentFrame.strokeOpacity)
+                )}
+              />
+            )}
           </div>
         </div>
       ) : (

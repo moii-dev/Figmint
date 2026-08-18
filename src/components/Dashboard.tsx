@@ -181,6 +181,20 @@ export const Dashboard: React.FC = () => {
                       {el.textContent || ''}
                     </text>
                   ))}
+                  {el.strokeWidth > 0 && (
+                    <text
+                      x={posX}
+                      y={posY + (el.fontSize || 14)}
+                      fontSize={el.fontSize || 14}
+                      fontWeight={el.fontWeight || 500}
+                      fill="none"
+                      stroke={strokeStyle}
+                      strokeWidth={el.strokeWidth}
+                      paintOrder="stroke fill"
+                    >
+                      {el.textContent || ''}
+                    </text>
+                  )}
                 </g>
               );
             }

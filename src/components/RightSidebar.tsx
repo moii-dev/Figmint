@@ -640,7 +640,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
             </button>
             <button
               onClick={() => {
-                if (primaryElement.strokeWidth === 0) handleUpdate({ strokeWidth: 1 });
+                if (primaryElement.strokeWidth === 0 || primaryElement.strokeOpacity === 0) {
+                  handleUpdate({
+                    strokeWidth: Math.max(1, primaryElement.strokeWidth),
+                    strokeOpacity: 1,
+                  });
+                }
                 setIsStrokeOpen(true);
                 setActiveColorPicker(activeColorPicker === 'stroke' ? null : 'stroke');
               }}

@@ -115,3 +115,21 @@ test('SVG export collapses legacy layers into one multi-color gradient', () => {
   assert.match(svg, /url\(#export-gradient-shape-top\)/);
   assert.doesNotMatch(svg, /url\(#export-gradient-shape-bottom\)/);
 });
+
+test('SVG export uses stroke settings for text and line elements', () => {
+  const textElement: CanvasElement = {
+    ...element('outlined-text', 'text', 0, 0),
+    textContent: 'Stroke',
+    stroke: '#FF0000',
+    strokeWidth: 2,
+  };
+  const lineElement: CanvasElement = {
+    ...element('outlined-line', 'line', 0, 30),
+    stroke: '#00FF00',
+    strokeWidth: 4,
+  };
+
+  const svg = generateSvgString([textElement, lineElement]);
+  assert.match(svg, /<text[^>]+stroke="rgba\(255, 0, 0, 1\)"[^>]+stroke-width="2"/);
+  assert.match(svg, /<line[^>]+stroke="rgba\(0, 255, 0, 1\)"[^>]+stroke-width="4"/);
+});
