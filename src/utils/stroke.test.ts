@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CanvasElement } from '../types/figma';
-import { getCssStrokeOverlayStyle } from './stroke';
+import { getCssStrokeOverlayStyle, getEllipseStrokeGeometry } from './stroke';
 
 const element: CanvasElement = {
   id: 'shape',
@@ -45,4 +45,27 @@ test('CSS stroke overlay preserves style and expands the corner radius', () => {
   assert.equal(style.borderStyle, 'dashed');
   assert.equal(style.borderRadius, '12px');
   assert.equal(style.borderColor, 'rgba(0, 0, 0, 0.5)');
+});
+
+test('ellipse stroke geometry stays concentric for every alignment', () => {
+  const ellipse = { ...element, type: 'ellipse' as const, width: 100, height: 80, strokeWidth: 4 };
+
+  assert.deepEqual(getEllipseStrokeGeometry({ ...ellipse, strokeAlign: 'inside' }), {
+    cx: 50,
+    cy: 40,
+    rx: 48,
+    ry: 38,
+  });
+  assert.deepEqual(getEllipseStrokeGeometry({ ...ellipse, strokeAlign: 'center' }), {
+    cx: 50,
+    cy: 40,
+    rx: 50,
+    ry: 40,
+  });
+  assert.deepEqual(getEllipseStrokeGeometry({ ...ellipse, strokeAlign: 'outside' }), {
+    cx: 50,
+    cy: 40,
+    rx: 52,
+    ry: 42,
+  });
 });

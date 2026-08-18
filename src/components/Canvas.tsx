@@ -27,7 +27,7 @@ import {
   getSvgGradientId,
   getVisibleGradients,
 } from '../utils/gradient';
-import { getCssStrokeOverlayStyle } from '../utils/stroke';
+import { getCssStrokeOverlayStyle, getEllipseStrokeGeometry } from '../utils/stroke';
 
 interface DragElementSnapshot {
   id: string;
@@ -621,16 +621,48 @@ export const Canvas: React.FC = () => {
     }
 
     if (el.type === 'ellipse') {
+      const fillGeometry = {
+        cx: el.width / 2,
+        cy: el.height / 2,
+        rx: el.width / 2,
+        ry: el.height / 2,
+      };
+      const strokeGeometry = getEllipseStrokeGeometry(el);
+
       return (
-        <div
-          className="relative w-full h-full rounded-full"
+        <svg
+          className="h-full w-full overflow-visible"
+          viewBox={`0 0 ${el.width} ${el.height}`}
           style={{
-            ...fillCss,
-            boxShadow: boxShadowStyle,
+            filter: el.shadow
+              ? `drop-shadow(${el.shadow.x}px ${el.shadow.y}px ${el.shadow.blur}px ${hexToRgba(
+                  el.shadow.color,
+                  el.shadow.opacity
+                )})`
+              : 'none',
           }}
         >
-          {el.strokeWidth > 0 && <div style={getCssStrokeOverlayStyle(el, strokeStyle)} />}
-        </div>
+          <SvgGradientDefs element={el} prefix="canvas" />
+          <ellipse {...fillGeometry} fill={fillStyle} stroke="none" />
+          {svgGradients.map((gradient) => (
+            <ellipse
+              key={gradient.id}
+              {...fillGeometry}
+              fill={`url(#${getSvgGradientId('canvas', el.id, gradient.id)})`}
+              opacity={gradient.opacity}
+              stroke="none"
+            />
+          ))}
+          {el.strokeWidth > 0 ? (
+            <ellipse
+              {...strokeGeometry}
+              fill="none"
+              stroke={strokeStyle}
+              strokeWidth={el.strokeWidth}
+              strokeDasharray={strokeDash}
+            />
+          ) : null}
+        </svg>
       );
     }
 
