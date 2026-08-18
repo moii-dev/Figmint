@@ -213,9 +213,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => {
     try {
       const savedId = localStorage.getItem(ACTIVE_PROJ_KEY);
-      if (savedId) return savedId;
+      if (savedId && projects.some((project) => project.id === savedId)) return savedId;
     } catch (e) {}
-    return 'proj-banking-mobile';
+    return projects[0]?.id || null;
   });
 
   const [viewMode, setViewMode] = useState<'dashboard' | 'editor'>('editor');
@@ -240,6 +240,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activeLeftTab, setActiveLeftTab] = useState<'layers' | 'assets' | 'variables'>('layers');
   const [collapsedFrames, setCollapsedFrames] = useState<Record<string, boolean>>({});
   const viewportSizeRef = useRef({ width: 900, height: 700 });
+  const persistenceRef = useRef({ projects, currentProjectId, elements, zoom, pan });
+  persistenceRef.current = { projects, currentProjectId, elements, zoom, pan };
 
   // History stack
   const historyRef = useRef<CanvasElement[][]>([elements]);
@@ -257,6 +259,47 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.warn('Failed to save projects to localStorage', e);
     }
   }, [projects, currentProjectId]);
+
+  const persistLatestEditorState = useCallback(() => {
+    const latest = persistenceRef.current;
+    const persistedProjects = latest.currentProjectId
+      ? latest.projects.map((project) =>
+          project.id === latest.currentProjectId
+            ? {
+                ...project,
+                elements: latest.elements,
+                zoom: latest.zoom,
+                pan: latest.pan,
+                updatedAt: Date.now(),
+              }
+            : project
+        )
+      : latest.projects;
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedProjects));
+      if (latest.currentProjectId) {
+        localStorage.setItem(ACTIVE_PROJ_KEY, latest.currentProjectId);
+      }
+    } catch (e) {
+      console.warn('Failed to save the latest editor state to localStorage', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') persistLatestEditorState();
+    };
+
+    window.addEventListener('pagehide', persistLatestEditorState);
+    window.addEventListener('beforeunload', persistLatestEditorState);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', persistLatestEditorState);
+      window.removeEventListener('beforeunload', persistLatestEditorState);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [persistLatestEditorState]);
 
   // Debounced auto-save current elements and canvas viewport to current project
   useEffect(() => {

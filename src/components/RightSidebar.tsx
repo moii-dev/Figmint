@@ -17,10 +17,20 @@ import {
   Droplet,
   Square,
   X,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement, ShapeType } from '../types/figma';
 import { ColorPickerPopover } from './ColorPickerPopover';
+
+const transparencyGridStyle = {
+  backgroundColor: '#ffffff',
+  backgroundImage:
+    'linear-gradient(45deg, #d8dee8 25%, transparent 25%), linear-gradient(-45deg, #d8dee8 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d8dee8 75%), linear-gradient(-45deg, transparent 75%, #d8dee8 75%)',
+  backgroundPosition: '0 0, 0 5px, 5px -5px, -5px 0px',
+  backgroundSize: '10px 10px',
+};
 
 interface RightSidebarProps {
   onOpenShortcuts: () => void;
@@ -364,73 +374,91 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
         <div className="h-[1px] bg-[#e6e6e6]" />
 
         {/* 5. Fill Section */}
-        <div className="space-y-2 relative">
+        <div className="relative space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">
-              Fill
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setActiveColorPicker(activeColorPicker === 'fill' ? null : 'fill')}
-                aria-label="Open fill color picker"
-                className="w-5 h-5 rounded hover:bg-[#f1f5f9] flex items-center justify-center text-gray-600 transition-colors cursor-pointer"
-              >
-                <Plus size={13} />
-              </button>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700">Fill</span>
+              <span className="text-[9px] font-semibold text-[#9aa1ad]">Solid</span>
             </div>
-          </div>
-
-          {/* Fill Row */}
-          <div className="flex items-center gap-2 bg-[#f8fafc] p-1.5 rounded-lg border border-[#e2e8f0]">
-            {/* Swatch */}
             <button
               onClick={() => setActiveColorPicker(activeColorPicker === 'fill' ? null : 'fill')}
-              aria-label="Edit fill color"
-              className="w-6 h-6 rounded-md border border-black/15 shadow-xs flex-shrink-0 cursor-pointer"
-              style={{ backgroundColor: primaryElement.fill, opacity: primaryElement.fillOpacity }}
-            />
-
-            {/* Hex Input */}
-            <input
-              aria-label="Fill color hex"
-              type="text"
-              value={primaryElement.fill.toUpperCase().replace('#', '')}
-              onChange={(e) => {
-                const hex = e.target.value.replace('#', '');
-                if (hex.length <= 6) {
-                  handleUpdate({ fill: `#${hex}` });
-                }
-              }}
-              className="w-20 bg-transparent text-xs font-mono font-medium text-gray-800 outline-none uppercase"
-            />
-
-            {/* Opacity */}
-            <div className="flex items-center ml-auto">
-              <input
-                aria-label="Fill opacity"
-                type="number"
-                min="0"
-                max="100"
-                value={Math.round(primaryElement.fillOpacity * 100)}
-                onChange={(e) => handleUpdate({ fillOpacity: Math.max(0, Math.min(100, Number(e.target.value))) / 100 })}
-                className="w-10 bg-transparent text-xs font-mono text-right text-gray-800 outline-none"
-              />
-              <span className="text-gray-400 text-[10px] ml-0.5">%</span>
-            </div>
-
-            {/* Visibility toggle */}
-            <button
-              onClick={() => handleUpdate({ fillOpacity: primaryElement.fillOpacity === 0 ? 1 : 0 })}
-              aria-label={primaryElement.fillOpacity === 0 ? 'Show fill' : 'Hide fill'}
-              className="text-gray-400 hover:text-gray-700 p-0.5"
+              aria-label="Open fill color picker"
+              aria-expanded={activeColorPicker === 'fill'}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-[#eef7ff] hover:text-[#0d99ff]"
             >
-              {primaryElement.fillOpacity === 0 ? <EyeOff size={13} /> : <Eye size={13} />}
+              <Plus size={13} />
             </button>
           </div>
 
-          {/* Fill Popover */}
+          <div className={`rounded-xl border bg-[#fbfcfd] p-2 transition-all ${
+            activeColorPicker === 'fill'
+              ? 'border-[#0d99ff] shadow-[0_0_0_3px_rgba(13,153,255,0.08)]'
+              : 'border-[#e2e7ee] hover:border-[#cdd4de]'
+          }`}>
+            <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveColorPicker(activeColorPicker === 'fill' ? null : 'fill')}
+              aria-label="Edit fill color"
+              aria-expanded={activeColorPicker === 'fill'}
+              className="relative h-9 w-9 flex-shrink-0 overflow-hidden rounded-lg border border-black/10 shadow-inner"
+              style={transparencyGridStyle}
+            >
+              <span
+                className="absolute inset-0"
+                style={{ backgroundColor: primaryElement.fill, opacity: primaryElement.fillOpacity }}
+              />
+              <span className="absolute inset-x-1 bottom-1 h-px bg-white/60" />
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <div className="mb-0.5 grid grid-cols-[1fr_48px] gap-2 text-[8px] font-bold uppercase tracking-[0.12em] text-[#a0a7b2]">
+                <span>Hex</span>
+                <span className="text-right">Alpha</span>
+              </div>
+              <div className="grid grid-cols-[1fr_48px] gap-2">
+                <div className="flex items-center rounded-md bg-white px-1.5 ring-1 ring-inset ring-[#e5e9ef] focus-within:ring-[#0d99ff]">
+                  <span className="text-[10px] text-[#a0a7b2]">#</span>
+                  <input
+                    aria-label="Fill color hex"
+                    type="text"
+                    value={primaryElement.fill.toUpperCase().replace('#', '')}
+                    maxLength={6}
+                    onChange={(event) => {
+                      const hex = event.target.value.replace('#', '');
+                      if (hex.length <= 6) handleUpdate({ fill: `#${hex}` });
+                    }}
+                    className="w-full bg-transparent px-1 py-1 font-mono text-[11px] font-semibold uppercase text-[#34383f] outline-none"
+                  />
+                </div>
+                <div className="flex items-center rounded-md bg-white px-1.5 ring-1 ring-inset ring-[#e5e9ef] focus-within:ring-[#0d99ff]">
+                  <input
+                    aria-label="Fill opacity"
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={Math.round(primaryElement.fillOpacity * 100)}
+                    onChange={(event) => handleUpdate({ fillOpacity: Math.max(0, Math.min(100, Number(event.target.value))) / 100 })}
+                    className="w-full bg-transparent py-1 text-right font-mono text-[11px] font-semibold text-[#34383f] outline-none"
+                  />
+                  <span className="ml-0.5 text-[9px] text-[#a0a7b2]">%</span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => handleUpdate({ fillOpacity: primaryElement.fillOpacity === 0 ? 1 : 0 })}
+              aria-label={primaryElement.fillOpacity === 0 ? 'Show fill' : 'Hide fill'}
+              aria-pressed={primaryElement.fillOpacity > 0}
+              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[#9aa1ad] transition-colors hover:bg-white hover:text-[#34383f]"
+            >
+              {primaryElement.fillOpacity === 0 ? <EyeOff size={13} /> : <Eye size={13} />}
+            </button>
+            </div>
+          </div>
+
           {activeColorPicker === 'fill' && (
             <ColorPickerPopover
+              label="Fill color"
               color={primaryElement.fill}
               opacity={primaryElement.fillOpacity}
               onChangeColor={(fill) => handleUpdate({ fill })}
@@ -443,65 +471,153 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
         <div className="h-[1px] bg-[#e6e6e6]" />
 
         {/* 6. Stroke Section (Collapsible) */}
-        <div className="space-y-2 relative">
-          <div
-            onClick={() => setIsStrokeOpen(!isStrokeOpen)}
-            className="flex items-center justify-between cursor-pointer group"
-          >
-            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider group-hover:text-black">
-              Stroke
-            </span>
+        <div className="relative space-y-2">
+          <div className="flex items-center justify-between">
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleUpdate({ strokeWidth: (primaryElement.strokeWidth || 0) + 1 });
+              onClick={() => setIsStrokeOpen(!isStrokeOpen)}
+              aria-expanded={isStrokeOpen}
+              className="group flex items-center gap-1.5"
+            >
+              {isStrokeOpen ? <ChevronDown size={12} className="text-[#9aa1ad]" /> : <ChevronRight size={12} className="text-[#9aa1ad]" />}
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700 group-hover:text-black">
+                Stroke
+              </span>
+              <span className="text-[9px] font-semibold text-[#9aa1ad]">{primaryElement.strokeStyle || 'solid'}</span>
+            </button>
+            <button
+              onClick={() => {
+                if (primaryElement.strokeWidth === 0) handleUpdate({ strokeWidth: 1 });
+                setIsStrokeOpen(true);
+                setActiveColorPicker(activeColorPicker === 'stroke' ? null : 'stroke');
               }}
-              className="w-5 h-5 rounded hover:bg-[#f1f5f9] flex items-center justify-center text-gray-600 transition-colors cursor-pointer"
-              aria-label="Increase stroke width"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-[#eef7ff] hover:text-[#0d99ff]"
+              aria-label="Edit stroke"
+              aria-expanded={activeColorPicker === 'stroke'}
             >
               <Plus size={13} />
             </button>
           </div>
 
           {isStrokeOpen && (
-            <div className="flex items-center gap-2 bg-[#f8fafc] p-1.5 rounded-lg border border-[#e2e8f0]">
-              <button
-                onClick={() => setActiveColorPicker(activeColorPicker === 'stroke' ? null : 'stroke')}
-                aria-label="Edit stroke color"
-                className="w-6 h-6 rounded-md border border-black/15 shadow-xs flex-shrink-0 cursor-pointer"
-                style={{ backgroundColor: primaryElement.stroke, opacity: primaryElement.strokeOpacity }}
-              />
+            <div className="space-y-2">
+              <div className={`rounded-xl border bg-[#fbfcfd] p-2 transition-all ${
+                activeColorPicker === 'stroke'
+                  ? 'border-[#0d99ff] shadow-[0_0_0_3px_rgba(13,153,255,0.08)]'
+                  : 'border-[#e2e7ee] hover:border-[#cdd4de]'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveColorPicker(activeColorPicker === 'stroke' ? null : 'stroke')}
+                    aria-label="Edit stroke color"
+                    aria-expanded={activeColorPicker === 'stroke'}
+                    className="relative h-9 w-9 flex-shrink-0 overflow-hidden rounded-lg border border-black/10 shadow-inner"
+                    style={transparencyGridStyle}
+                  >
+                    <span
+                      className="absolute inset-0"
+                      style={{ backgroundColor: primaryElement.stroke, opacity: primaryElement.strokeOpacity }}
+                    />
+                    <span
+                      className="absolute inset-x-1 bottom-1.5 rounded-full"
+                      style={{ height: Math.max(1, Math.min(4, primaryElement.strokeWidth)), backgroundColor: primaryElement.stroke }}
+                    />
+                  </button>
 
-              <input
-                aria-label="Stroke color hex"
-                type="text"
-                value={primaryElement.stroke.toUpperCase().replace('#', '')}
-                onChange={(e) => {
-                  const hex = e.target.value.replace('#', '');
-                  if (hex.length <= 6) {
-                    handleUpdate({ stroke: `#${hex}` });
-                  }
-                }}
-                className="w-20 bg-transparent text-xs font-mono font-medium text-gray-800 outline-none uppercase"
-              />
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-0.5 grid grid-cols-[1fr_48px] gap-2 text-[8px] font-bold uppercase tracking-[0.12em] text-[#a0a7b2]">
+                      <span>Hex</span>
+                      <span className="text-right">Alpha</span>
+                    </div>
+                    <div className="grid grid-cols-[1fr_48px] gap-2">
+                      <div className="flex items-center rounded-md bg-white px-1.5 ring-1 ring-inset ring-[#e5e9ef] focus-within:ring-[#0d99ff]">
+                        <span className="text-[10px] text-[#a0a7b2]">#</span>
+                        <input
+                          aria-label="Stroke color hex"
+                          type="text"
+                          value={primaryElement.stroke.toUpperCase().replace('#', '')}
+                          maxLength={6}
+                          onChange={(event) => {
+                            const hex = event.target.value.replace('#', '');
+                            if (hex.length <= 6) handleUpdate({ stroke: `#${hex}` });
+                          }}
+                          className="w-full bg-transparent px-1 py-1 font-mono text-[11px] font-semibold uppercase text-[#34383f] outline-none"
+                        />
+                      </div>
+                      <div className="flex items-center rounded-md bg-white px-1.5 ring-1 ring-inset ring-[#e5e9ef] focus-within:ring-[#0d99ff]">
+                        <input
+                          aria-label="Stroke opacity"
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={Math.round(primaryElement.strokeOpacity * 100)}
+                          onChange={(event) => handleUpdate({ strokeOpacity: Math.max(0, Math.min(100, Number(event.target.value))) / 100 })}
+                          className="w-full bg-transparent py-1 text-right font-mono text-[11px] font-semibold text-[#34383f] outline-none"
+                        />
+                        <span className="ml-0.5 text-[9px] text-[#a0a7b2]">%</span>
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="flex items-center ml-auto">
-                <span className="text-gray-400 text-[10px] mr-1 font-mono">W:</span>
-                <input
-                  aria-label="Stroke width"
-                  type="number"
-                  min="0"
-                  max="40"
-                  value={primaryElement.strokeWidth}
-                  onChange={(e) => handleUpdate({ strokeWidth: Math.max(0, Number(e.target.value)) })}
-                  className="w-8 bg-transparent text-xs font-mono text-right text-gray-800 outline-none"
-                />
+                  <button
+                    onClick={() => handleUpdate({ strokeOpacity: primaryElement.strokeOpacity === 0 ? 1 : 0 })}
+                    aria-label={primaryElement.strokeOpacity === 0 ? 'Show stroke' : 'Hide stroke'}
+                    aria-pressed={primaryElement.strokeOpacity > 0}
+                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[#9aa1ad] transition-colors hover:bg-white hover:text-[#34383f]"
+                  >
+                    {primaryElement.strokeOpacity === 0 ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-[58px_1fr_1fr] gap-1.5">
+                <label className="rounded-lg border border-[#e2e7ee] bg-[#f7f8fa] px-2 py-1">
+                  <span className="block text-[8px] font-bold uppercase tracking-[0.11em] text-[#a0a7b2]">Width</span>
+                  <span className="flex items-center">
+                    <input
+                      aria-label="Stroke width"
+                      type="number"
+                      min="0"
+                      max="40"
+                      value={primaryElement.strokeWidth}
+                      onChange={(event) => handleUpdate({ strokeWidth: Math.max(0, Number(event.target.value)) })}
+                      className="w-full bg-transparent font-mono text-[11px] font-semibold text-[#34383f] outline-none"
+                    />
+                    <span className="text-[8px] text-[#a0a7b2]">px</span>
+                  </span>
+                </label>
+                <label className="rounded-lg border border-[#e2e7ee] bg-[#f7f8fa] px-2 py-1">
+                  <span className="block text-[8px] font-bold uppercase tracking-[0.11em] text-[#a0a7b2]">Style</span>
+                  <select
+                    aria-label="Stroke style"
+                    value={primaryElement.strokeStyle || 'solid'}
+                    onChange={(event) => handleUpdate({ strokeStyle: event.target.value as CanvasElement['strokeStyle'] })}
+                    className="w-full bg-transparent text-[10px] font-semibold capitalize text-[#34383f] outline-none"
+                  >
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                  </select>
+                </label>
+                <label className="rounded-lg border border-[#e2e7ee] bg-[#f7f8fa] px-2 py-1">
+                  <span className="block text-[8px] font-bold uppercase tracking-[0.11em] text-[#a0a7b2]">Align</span>
+                  <select
+                    aria-label="Stroke alignment"
+                    value={primaryElement.strokeAlign || 'inside'}
+                    onChange={(event) => handleUpdate({ strokeAlign: event.target.value as CanvasElement['strokeAlign'] })}
+                    className="w-full bg-transparent text-[10px] font-semibold capitalize text-[#34383f] outline-none"
+                  >
+                    <option value="inside">Inside</option>
+                    <option value="center">Center</option>
+                    <option value="outside">Outside</option>
+                  </select>
+                </label>
               </div>
             </div>
           )}
 
           {activeColorPicker === 'stroke' && (
             <ColorPickerPopover
+              label="Stroke color"
               color={primaryElement.stroke}
               opacity={primaryElement.strokeOpacity}
               onChangeColor={(stroke) => handleUpdate({ stroke })}

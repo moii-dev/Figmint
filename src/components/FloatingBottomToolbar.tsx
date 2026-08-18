@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   MousePointer2,
   Hand,
@@ -22,6 +23,13 @@ import {
 import { useCanvas } from '../context/CanvasContext';
 import { DEVICE_PRESETS } from '../data/presets';
 
+type ShapeTool = 'rectangle' | 'ellipse' | 'triangle';
+
+const LAST_SHAPE_TOOL_KEY = 'figmint_last_shape_tool';
+const SHAPE_TOOLS: ShapeTool[] = ['rectangle', 'ellipse', 'triangle'];
+
+const isShapeTool = (tool: string): tool is ShapeTool => SHAPE_TOOLS.includes(tool as ShapeTool);
+
 export const FloatingBottomToolbar: React.FC = () => {
   const {
     activeTool,
@@ -41,12 +49,29 @@ export const FloatingBottomToolbar: React.FC = () => {
   } = useCanvas();
 
   const [openDropdown, setOpenDropdown] = useState<'move' | 'frame' | 'shape' | 'pen' | 'text' | 'resources' | null>(null);
+  const [lastShapeTool, setLastShapeTool] = useState<ShapeTool>(() => {
+    try {
+      const savedTool = localStorage.getItem(LAST_SHAPE_TOOL_KEY);
+      return savedTool && isShapeTool(savedTool) ? savedTool : 'rectangle';
+    } catch {
+      return 'rectangle';
+    }
+  });
+  const [dropdownPosition, setDropdownPosition] = useState<{ left: number; bottom: number } | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const frameDropdownButtonRef = useRef<HTMLButtonElement>(null);
+  const shapeDropdownButtonRef = useRef<HTMLButtonElement>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (
+        toolbarRef.current &&
+        !toolbarRef.current.contains(target) &&
+        !(target instanceof Element && target.closest('[data-toolbar-dropdown]'))
+      ) {
         setOpenDropdown(null);
       }
     };
@@ -54,12 +79,50 @@ export const FloatingBottomToolbar: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (isShapeTool(activeTool)) {
+      setLastShapeTool(activeTool);
+      try {
+        localStorage.setItem(LAST_SHAPE_TOOL_KEY, activeTool);
+      } catch {
+        // The toolbar still works when browser storage is unavailable.
+      }
+    }
+  }, [activeTool]);
+
+  useEffect(() => {
+    if (openDropdown !== 'frame' && openDropdown !== 'shape') {
+      setDropdownPosition(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const isFrameDropdown = openDropdown === 'frame';
+      const button = isFrameDropdown ? frameDropdownButtonRef.current : shapeDropdownButtonRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      const menuWidth = isFrameDropdown ? 288 : 176;
+      setDropdownPosition({
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)),
+        bottom: window.innerHeight - rect.top + 8,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [openDropdown]);
+
   const mobilePresets = DEVICE_PRESETS.filter((p) => p.category === 'mobile');
   const desktopPresets = DEVICE_PRESETS.filter((p) => p.category === 'desktop');
   const socialPresets = DEVICE_PRESETS.filter((p) => p.category === 'social');
 
   const getActiveShapeIcon = () => {
-    switch (activeTool) {
+    switch (lastShapeTool) {
       case 'ellipse':
         return <Circle size={17} />;
       case 'triangle':
@@ -159,94 +222,16 @@ export const FloatingBottomToolbar: React.FC = () => {
               <Frame size={17} />
             </button>
             <button
+              ref={frameDropdownButtonRef}
               onClick={() => setOpenDropdown(openDropdown === 'frame' ? null : 'frame')}
               aria-label="Choose frame preset"
-              className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
-                activeTool === 'frame' ? 'text-white/80 hover:text-white' : ''
-              }`}
+              aria-expanded={openDropdown === 'frame'}
+              aria-haspopup="menu"
+              className="p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] hover:text-[#111111] transition-colors cursor-pointer"
             >
               <ChevronDown size={12} />
             </button>
           </div>
-
-          {/* Frame Presets Dropdown */}
-          {openDropdown === 'frame' && (
-            <div className="absolute bottom-full mb-2 left-0 w-72 bg-white border border-[#e2e8f0] rounded-xl shadow-2xl p-2 z-50 text-xs max-h-[460px] overflow-y-auto custom-scrollbar">
-              <div className="px-2 py-1 text-[11px] font-semibold text-[#888888] uppercase tracking-wider">
-                Device Presets
-              </div>
-
-              {/* Mobile */}
-              <div className="mt-1">
-                <div className="px-2 py-1 text-[11px] font-semibold text-[#0d99ff] flex items-center gap-1.5">
-                  <Smartphone size={13} /> Phones & Mobile
-                </div>
-                {mobilePresets.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      spawnPresetFrame(p);
-                      setOpenDropdown(null);
-                    }}
-                    className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
-                  >
-                    <span className="font-medium truncate">{p.name}</span>
-                    <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
-                      {p.width} × {p.height}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="h-[1px] bg-[#e2e8f0] my-2" />
-
-              {/* Desktop */}
-              <div>
-                <div className="px-2 py-1 text-[11px] font-semibold text-[#10b981] flex items-center gap-1.5">
-                  <Laptop size={13} /> Desktop & OS
-                </div>
-                {desktopPresets.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      spawnPresetFrame(p);
-                      setOpenDropdown(null);
-                    }}
-                    className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
-                  >
-                    <span className="font-medium truncate">{p.name}</span>
-                    <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
-                      {p.width} × {p.height}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="h-[1px] bg-[#e2e8f0] my-2" />
-
-              {/* Social */}
-              <div>
-                <div className="px-2 py-1 text-[11px] font-semibold text-[#f59e0b] flex items-center gap-1.5">
-                  <Share2 size={13} /> Aspect Ratios & Social
-                </div>
-                {socialPresets.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      spawnPresetFrame(p);
-                      setOpenDropdown(null);
-                    }}
-                    className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
-                  >
-                    <span className="font-medium truncate">{p.name}</span>
-                    <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
-                      {p.width} × {p.height}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* 3. Shape Tools (Rectangle / Ellipse / Triangle) */}
@@ -255,10 +240,10 @@ export const FloatingBottomToolbar: React.FC = () => {
             <button
               id="tool-shape-btn"
               onClick={() => {
-                if (['rectangle', 'ellipse', 'triangle'].includes(activeTool)) {
+                if (isShapeTool(activeTool)) {
                   setTool('select');
                 } else {
-                  setTool('rectangle');
+                  setTool(lastShapeTool);
                 }
                 setOpenDropdown(null);
               }}
@@ -272,60 +257,16 @@ export const FloatingBottomToolbar: React.FC = () => {
               {getActiveShapeIcon()}
             </button>
             <button
+              ref={shapeDropdownButtonRef}
               onClick={() => setOpenDropdown(openDropdown === 'shape' ? null : 'shape')}
               aria-label="Choose shape tool"
-              className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
-                ['rectangle', 'ellipse', 'triangle'].includes(activeTool) ? 'text-white/80 hover:text-white' : ''
-              }`}
+              aria-expanded={openDropdown === 'shape'}
+              aria-haspopup="menu"
+              className="p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] hover:text-[#111111] transition-colors cursor-pointer"
             >
               <ChevronDown size={12} />
             </button>
           </div>
-
-          {/* Shape selection dropdown */}
-          {openDropdown === 'shape' && (
-            <div className="absolute bottom-full mb-2 left-0 w-44 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-50 text-xs text-[#222222]">
-              <button
-                onClick={() => {
-                  setTool('rectangle');
-                  setOpenDropdown(null);
-                }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Square size={14} />
-                  <span className="font-medium">Rectangle</span>
-                </div>
-                <span className="text-[10px] text-gray-400 font-mono">R</span>
-              </button>
-              <button
-                onClick={() => {
-                  setTool('ellipse');
-                  setOpenDropdown(null);
-                }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Circle size={14} />
-                  <span className="font-medium">Ellipse</span>
-                </div>
-                <span className="text-[10px] text-gray-400 font-mono">O</span>
-              </button>
-              <button
-                onClick={() => {
-                  setTool('triangle');
-                  setOpenDropdown(null);
-                }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Triangle size={14} />
-                  <span className="font-medium">Polygon / Triangle</span>
-                </div>
-                <span className="text-[10px] text-gray-400 font-mono">—</span>
-              </button>
-            </div>
-          )}
         </div>
 
         {/* 4. Pen / Vector Tool */}
@@ -487,6 +428,143 @@ export const FloatingBottomToolbar: React.FC = () => {
           <Ruler size={15} />
         </button>
       </div>
+      {openDropdown === 'frame' && dropdownPosition && createPortal(
+        <div
+          data-toolbar-dropdown
+          role="menu"
+          aria-label="Device presets"
+          className="fixed w-72 bg-white border border-[#e2e8f0] rounded-xl shadow-2xl p-2 z-[60] text-xs overflow-y-auto custom-scrollbar"
+          style={{ ...dropdownPosition, maxHeight: 'min(460px, calc(100vh - 80px))' }}
+        >
+          <div className="px-2 py-1 text-[11px] font-semibold text-[#888888] uppercase tracking-wider">
+            Device Presets
+          </div>
+
+          <div className="mt-1">
+            <div className="px-2 py-1 text-[11px] font-semibold text-[#0d99ff] flex items-center gap-1.5">
+              <Smartphone size={13} /> Phones & Mobile
+            </div>
+            {mobilePresets.map((preset) => (
+              <button
+                key={preset.id}
+                role="menuitem"
+                onClick={() => {
+                  spawnPresetFrame(preset);
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+              >
+                <span className="font-medium truncate">{preset.name}</span>
+                <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                  {preset.width} × {preset.height}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="h-px bg-[#e2e8f0] my-2" />
+
+          <div>
+            <div className="px-2 py-1 text-[11px] font-semibold text-[#10b981] flex items-center gap-1.5">
+              <Laptop size={13} /> Desktop & OS
+            </div>
+            {desktopPresets.map((preset) => (
+              <button
+                key={preset.id}
+                role="menuitem"
+                onClick={() => {
+                  spawnPresetFrame(preset);
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+              >
+                <span className="font-medium truncate">{preset.name}</span>
+                <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                  {preset.width} × {preset.height}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="h-px bg-[#e2e8f0] my-2" />
+
+          <div>
+            <div className="px-2 py-1 text-[11px] font-semibold text-[#f59e0b] flex items-center gap-1.5">
+              <Share2 size={13} /> Aspect Ratios & Social
+            </div>
+            {socialPresets.map((preset) => (
+              <button
+                key={preset.id}
+                role="menuitem"
+                onClick={() => {
+                  spawnPresetFrame(preset);
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+              >
+                <span className="font-medium truncate">{preset.name}</span>
+                <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                  {preset.width} × {preset.height}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
+      {openDropdown === 'shape' && dropdownPosition && createPortal(
+        <div
+          data-toolbar-dropdown
+          role="menu"
+          aria-label="Shape tools"
+          className="fixed w-44 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-[60] text-xs text-[#222222]"
+          style={dropdownPosition}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('rectangle');
+              setOpenDropdown(null);
+            }}
+            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Square size={14} />
+              <span className="font-medium">Rectangle</span>
+            </div>
+            <span className="text-[10px] text-gray-400 font-mono">R</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('ellipse');
+              setOpenDropdown(null);
+            }}
+            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Circle size={14} />
+              <span className="font-medium">Ellipse</span>
+            </div>
+            <span className="text-[10px] text-gray-400 font-mono">O</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('triangle');
+              setOpenDropdown(null);
+            }}
+            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Triangle size={14} />
+              <span className="font-medium">Polygon / Triangle</span>
+            </div>
+            <span className="text-[10px] text-gray-400 font-mono">—</span>
+          </button>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
