@@ -242,6 +242,10 @@ export const Canvas: React.FC = () => {
 
   // Element Mouse Down for moving/selecting
   const handleElementMouseDown = (e: React.MouseEvent, element: CanvasElement) => {
+    if (['frame', 'rectangle', 'ellipse', 'triangle', 'text', 'line'].includes(activeTool)) {
+      return;
+    }
+
     if (isSpacePressed || activeTool === 'hand' || e.button !== 0) return;
     e.stopPropagation();
 
@@ -712,6 +716,7 @@ export const Canvas: React.FC = () => {
       <div
         key={el.id}
         id={`nested-el-${el.id}`}
+        data-canvas-element-id={el.id}
         onMouseDown={(e) => handleElementMouseDown(e, el)}
         onDoubleClick={(e) => {
           if (el.type === 'text') {
@@ -774,7 +779,16 @@ export const Canvas: React.FC = () => {
         <div
           key={el.id}
           id={`canvas-frame-${el.id}`}
-          onMouseDown={(e) => handleElementMouseDown(e, el)}
+          data-canvas-element-id={el.id}
+          onMouseDown={(e) => {
+            const targetElementId = (e.target as HTMLElement)
+              .closest<HTMLElement>('[data-canvas-element-id]')
+              ?.dataset.canvasElementId;
+
+            if (targetElementId && targetElementId !== el.id) return;
+
+            handleElementMouseDown(e, el);
+          }}
           className="absolute select-none cursor-pointer"
           style={{
             left: `${el.x}px`,
