@@ -1,13 +1,15 @@
 import { CanvasElement, LinearGradientFill } from '../types/figma';
 import { clamp, hexToRgb, normalizeHexColor } from './color';
 
-const GRADIENT_PRESETS = [
-  ['#8B5CF6', '#06B6D4'],
-  ['#FF4D8D', '#FFB648'],
-  ['#0D99FF', '#7C3AED'],
-  ['#10B981', '#38BDF8'],
-  ['#F43F5E', '#8B5CF6'],
-  ['#F97316', '#EC4899'],
+const GRADIENT_COLORS = [
+  '#8B5CF6',
+  '#06B6D4',
+  '#FF4D8D',
+  '#FFB648',
+  '#0D99FF',
+  '#10B981',
+  '#F43F5E',
+  '#F97316',
 ] as const;
 
 const safeId = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -17,26 +19,90 @@ export const colorWithOpacity = (color: string, opacity = 1) => {
   return `rgba(${r}, ${g}, ${b}, ${clamp(opacity)})`;
 };
 
-export const createLinearGradient = (index = 0): LinearGradientFill => {
-  const colors = GRADIENT_PRESETS[index % GRADIENT_PRESETS.length];
+export const redistributeGradientStops = (stops: LinearGradientFill['stops']) =>
+  stops.map((stop, index) => ({
+    ...stop,
+    position: stops.length <= 1 ? 0 : (index / (stops.length - 1)) * 100,
+  }));
+
+export const createLinearGradient = (index = 0, baseColor?: string): LinearGradientFill => {
+  const firstColor = baseColor ? normalizeHexColor(baseColor) : GRADIENT_COLORS[index % GRADIENT_COLORS.length];
+  const secondColor = GRADIENT_COLORS[(index + (baseColor ? 0 : 1)) % GRADIENT_COLORS.length];
   return {
     id: `gradient-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     type: 'linear',
     angle: (135 + index * 30) % 360,
-    opacity: 0.82,
+    opacity: 1,
     visible: true,
     stops: [
-      { color: colors[0], position: 0, opacity: 1 },
-      { color: colors[1], position: 100, opacity: 1 },
+      { color: firstColor, position: 0, opacity: 1 },
+      { color: secondColor, position: 100, opacity: 1 },
     ],
   };
 };
 
-export const getVisibleGradients = (element: CanvasElement) =>
-  (element.gradients || []).filter((gradient) => gradient.visible && gradient.opacity > 0);
+export const collapseGradientLayers = (
+  gradients: LinearGradientFill[] | undefined
+): LinearGradientFill | undefined => {
+  if (!gradients?.length) return undefined;
+  const first = gradients[0];
+  const stops = gradients.flatMap((gradient) =>
+    gradient.stops.map((stop) => ({
+      ...stop,
+      opacity: clamp(stop.opacity) * clamp(gradient.opacity),
+    }))
+  );
+
+  return {
+    ...first,
+    opacity: 1,
+    visible: gradients.some((gradient) => gradient.visible),
+    stops: redistributeGradientStops(stops),
+  };
+};
+
+export const addGradientColor = (gradient: LinearGradientFill): LinearGradientFill => ({
+  ...gradient,
+  visible: true,
+  stops: redistributeGradientStops([
+    ...gradient.stops,
+    {
+      color: GRADIENT_COLORS[gradient.stops.length % GRADIENT_COLORS.length],
+      position: 100,
+      opacity: 1,
+      visible: true,
+    },
+  ]),
+});
+
+export const removeGradientColor = (gradient: LinearGradientFill, stopIndex: number) => ({
+  ...gradient,
+  stops: redistributeGradientStops(
+    gradient.stops.filter((_, index) => index !== stopIndex)
+  ),
+});
+
+export const getVisibleGradients = (element: CanvasElement) => {
+  const gradient = collapseGradientLayers(
+    (element.gradients || []).filter((item) => item.visible && item.opacity > 0)
+  );
+  return gradient && gradient.stops.some((stop) => stop.visible !== false) ? [gradient] : [];
+};
+
+export const getRenderableGradientStops = (gradient: LinearGradientFill) => {
+  const visibleStops = gradient.stops.filter((stop) => stop.visible !== false);
+  if (visibleStops.length === 0) return [];
+  if (visibleStops.length === 1) {
+    return [
+      { ...visibleStops[0], position: 0 },
+      { ...visibleStops[0], position: 100 },
+    ];
+  }
+  return redistributeGradientStops(visibleStops);
+};
 
 export const gradientToCss = (gradient: LinearGradientFill) => {
-  const stops = gradient.stops
+  const stops = getRenderableGradientStops(gradient)
     .map(
       (stop) =>
         `${colorWithOpacity(normalizeHexColor(stop.color), clamp(stop.opacity) * clamp(gradient.opacity))} ${clamp(stop.position, 0, 100)}%`
@@ -52,7 +118,7 @@ export const getElementCssFill = (element: CanvasElement) => {
     backgroundImage: gradients.length
       ? gradients
           .map((gradient) => {
-            const stops = gradient.stops
+            const stops = getRenderableGradientStops(gradient)
               .map(
                 (stop) =>
                   `${colorWithOpacity(stop.color, clamp(stop.opacity) * clamp(gradient.opacity))} ${clamp(stop.position, 0, 100)}%`

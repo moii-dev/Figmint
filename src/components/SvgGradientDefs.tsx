@@ -3,6 +3,7 @@ import { CanvasElement } from '../types/figma';
 import {
   getSvgGradientCoordinates,
   getSvgGradientId,
+  getRenderableGradientStops,
   getVisibleGradients,
 } from '../utils/gradient';
 
@@ -21,7 +22,7 @@ export const SvgGradientDefs: React.FC<SvgGradientDefsProps> = ({ element, prefi
           id={getSvgGradientId(prefix, element.id, gradient.id)}
           {...coordinates}
         >
-          {gradient.stops.map((stop, index) => (
+          {getRenderableGradientStops(gradient).map((stop, index) => (
             <stop
               key={`${gradient.id}-${index}`}
               offset={`${Math.max(0, Math.min(100, stop.position))}%`}

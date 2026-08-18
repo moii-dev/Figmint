@@ -80,7 +80,7 @@ test('SVG export uses world coordinates and escapes text and font metadata', () 
   assert.doesNotMatch(svg, /<Hello/);
 });
 
-test('SVG export preserves every gradient fill layer', () => {
+test('SVG export collapses legacy layers into one multi-color gradient', () => {
   const shape: CanvasElement = {
     ...element('gradient-shape', 'rectangle', 0, 0),
     gradients: [
@@ -110,7 +110,8 @@ test('SVG export preserves every gradient fill layer', () => {
   };
 
   const svg = generateSvgString([shape]);
-  assert.equal(svg.match(/<linearGradient/g)?.length, 2);
+  assert.equal(svg.match(/<linearGradient/g)?.length, 1);
+  assert.equal(svg.match(/<stop /g)?.length, 4);
   assert.match(svg, /url\(#export-gradient-shape-top\)/);
-  assert.match(svg, /url\(#export-gradient-shape-bottom\)/);
+  assert.doesNotMatch(svg, /url\(#export-gradient-shape-bottom\)/);
 });

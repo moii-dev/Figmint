@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AlignLeft,
   AlignCenter,
@@ -8,6 +8,8 @@ import {
   AlignJustify,
   Eye,
   EyeOff,
+  Grip,
+  Minus,
   Plus,
   Trash2,
   Download,
@@ -23,7 +25,12 @@ import {
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement, ShapeType } from '../types/figma';
 import { ColorPickerPopover } from './ColorPickerPopover';
-import { createLinearGradient, gradientToCss } from '../utils/gradient';
+import {
+  addGradientColor,
+  collapseGradientLayers,
+  createLinearGradient,
+  removeGradientColor,
+} from '../utils/gradient';
 import { normalizeHexColor } from '../utils/color';
 
 const transparencyGridStyle = {
@@ -49,7 +56,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
     exportSelected,
   } = useCanvas();
 
-  const [activeColorPicker, setActiveColorPicker] = useState<'fill' | 'stroke' | 'shadow' | null>(null);
+  const [activeColorPicker, setActiveColorPicker] = useState<'fill' | 'gradient' | 'stroke' | 'shadow' | null>(null);
+  const [selectedGradientStop, setSelectedGradientStop] = useState(0);
   const [aspectLocked, setAspectLocked] = useState(false);
   const [isStrokeOpen, setIsStrokeOpen] = useState(true);
   const [isEffectsOpen, setIsEffectsOpen] = useState(true);
@@ -57,6 +65,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
 
   const selectedElements = elements.filter((el) => selectedIds.includes(el.id));
   const primaryElement = selectedElements[0] as CanvasElement | undefined;
+
+  useEffect(() => {
+    setSelectedGradientStop(0);
+    setActiveColorPicker((current) => (current === 'gradient' ? null : current));
+  }, [primaryElement?.id]);
 
   if (!primaryElement) {
     return (
@@ -99,39 +112,56 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
     updateElement(primaryElement.id, changes);
   };
 
-  const addGradient = () => {
-    const gradients = primaryElement.gradients || [];
-    handleUpdate({ gradients: [createLinearGradient(gradients.length), ...gradients] });
+  const activeGradient = collapseGradientLayers(primaryElement.gradients);
+  const currentGradientStop = activeGradient?.stops[
+    Math.min(selectedGradientStop, Math.max(0, activeGradient.stops.length - 1))
+  ];
+
+  const saveGradient = (gradient: NonNullable<typeof activeGradient>) => {
+    handleUpdate({ gradients: [gradient] });
+  };
+
+  const addColorToGradient = () => {
+    const gradient = activeGradient
+      ? addGradientColor(activeGradient)
+      : createLinearGradient(0, primaryElement.fill);
+    saveGradient(gradient);
+    setSelectedGradientStop(gradient.stops.length - 1);
     setActiveColorPicker(null);
   };
 
-  const updateGradient = (gradientId: string, changes: Partial<NonNullable<CanvasElement['gradients']>[number]>) => {
-    handleUpdate({
-      gradients: (primaryElement.gradients || []).map((gradient) =>
-        gradient.id === gradientId ? { ...gradient, ...changes } : gradient
+  const updateGradientStop = (
+    stopIndex: number,
+    changes: Partial<NonNullable<typeof activeGradient>['stops'][number]>
+  ) => {
+    if (!activeGradient) return;
+    saveGradient({
+      ...activeGradient,
+      visible: true,
+      stops: activeGradient.stops.map((stop, index) =>
+        index === stopIndex ? { ...stop, ...changes } : stop
       ),
     });
   };
 
-  const updateGradientStop = (gradientId: string, stopIndex: number, color: string) => {
-    handleUpdate({
-      gradients: (primaryElement.gradients || []).map((gradient) =>
-        gradient.id === gradientId
-          ? {
-              ...gradient,
-              stops: gradient.stops.map((stop, index) =>
-                index === stopIndex ? { ...stop, color } : stop
-              ),
-            }
-          : gradient
-      ),
-    });
-  };
+  const removeGradientStop = (stopIndex: number) => {
+    if (!activeGradient) return;
+    if (activeGradient.stops.length <= 2) {
+      const fallback = activeGradient.stops.find((_, index) => index !== stopIndex)
+        || activeGradient.stops[0];
+      handleUpdate({
+        fill: fallback.color,
+        fillOpacity: fallback.opacity,
+        gradients: undefined,
+      });
+      setActiveColorPicker(null);
+      setSelectedGradientStop(0);
+      return;
+    }
 
-  const removeGradient = (gradientId: string) => {
-    handleUpdate({
-      gradients: (primaryElement.gradients || []).filter((gradient) => gradient.id !== gradientId),
-    });
+    const nextGradient = removeGradientColor(activeGradient, stopIndex);
+    saveGradient(nextGradient);
+    setSelectedGradientStop(Math.min(stopIndex, nextGradient.stops.length - 1));
   };
 
   const getTypeName = (type: ShapeType) => {
@@ -413,214 +443,180 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
         {/* 5. Fill Section */}
         <div className="relative space-y-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700">Fill</span>
-              <span className="text-[9px] font-semibold text-[#9aa1ad]">
-                Solid{primaryElement.gradients?.length ? ` + ${primaryElement.gradients.length}` : ''}
-              </span>
-            </div>
-            <button
-              onClick={addGradient}
-              aria-label="Add gradient fill"
-              title="Add gradient fill"
-              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-[#eef7ff] hover:text-[#0d99ff]"
-            >
-              <Plus size={13} />
-            </button>
-          </div>
-
-          <div className={`rounded-xl border bg-[#fbfcfd] p-2 transition-all ${
-            activeColorPicker === 'fill'
-              ? 'border-[#0d99ff] shadow-[0_0_0_3px_rgba(13,153,255,0.08)]'
-              : 'border-[#e2e7ee] hover:border-[#cdd4de]'
-          }`}>
-            <div className="flex items-center gap-2">
-            <button
-              onClick={() => setActiveColorPicker(activeColorPicker === 'fill' ? null : 'fill')}
-              aria-label="Edit fill color"
-              aria-expanded={activeColorPicker === 'fill'}
-              className="relative h-9 w-9 flex-shrink-0 overflow-hidden rounded-lg border border-black/10 shadow-inner"
-              style={transparencyGridStyle}
-            >
-              <span
-                className="absolute inset-0"
-                style={{ backgroundColor: primaryElement.fill, opacity: primaryElement.fillOpacity }}
-              />
-              <span className="absolute inset-x-1 bottom-1 h-px bg-white/60" />
-            </button>
-
-            <div className="min-w-0 flex-1">
-              <div className="mb-0.5 grid grid-cols-[1fr_48px] gap-2 text-[8px] font-bold uppercase tracking-[0.12em] text-[#a0a7b2]">
-                <span>Hex</span>
-                <span className="text-right">Alpha</span>
-              </div>
-              <div className="grid grid-cols-[1fr_48px] gap-2">
-                <div className="flex items-center rounded-md bg-white px-1.5 ring-1 ring-inset ring-[#e5e9ef] focus-within:ring-[#0d99ff]">
-                  <span className="text-[10px] text-[#a0a7b2]">#</span>
-                  <input
-                    aria-label="Fill color hex"
-                    type="text"
-                    value={primaryElement.fill.toUpperCase().replace('#', '')}
-                    maxLength={6}
-                    onChange={(event) => {
-                      const hex = event.target.value.replace('#', '');
-                      if (hex.length <= 6) handleUpdate({ fill: `#${hex}` });
-                    }}
-                    className="w-full bg-transparent px-1 py-1 font-mono text-[11px] font-semibold uppercase text-[#34383f] outline-none"
-                  />
-                </div>
-                <div className="flex items-center rounded-md bg-white px-1.5 ring-1 ring-inset ring-[#e5e9ef] focus-within:ring-[#0d99ff]">
-                  <input
-                    aria-label="Fill opacity"
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={Math.round(primaryElement.fillOpacity * 100)}
-                    onChange={(event) => handleUpdate({ fillOpacity: Math.max(0, Math.min(100, Number(event.target.value))) / 100 })}
-                    className="w-full bg-transparent py-1 text-right font-mono text-[11px] font-semibold text-[#34383f] outline-none"
-                  />
-                  <span className="ml-0.5 text-[9px] text-[#a0a7b2]">%</span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => handleUpdate({ fillOpacity: primaryElement.fillOpacity === 0 ? 1 : 0 })}
-              aria-label={primaryElement.fillOpacity === 0 ? 'Show fill' : 'Hide fill'}
-              aria-pressed={primaryElement.fillOpacity > 0}
-              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[#9aa1ad] transition-colors hover:bg-white hover:text-[#34383f]"
-            >
-              {primaryElement.fillOpacity === 0 ? <EyeOff size={13} /> : <Eye size={13} />}
-            </button>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700">Fill</span>
+            <div className="flex items-center gap-0.5">
+              {activeGradient && (
+                <Grip size={14} className="text-[#a0a7b2]" aria-label="Gradient colors are distributed automatically" />
+              )}
+              <button
+                onClick={addColorToGradient}
+                aria-label="Add color to gradient"
+                title="Add color to gradient"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-[#eef7ff] hover:text-[#0d99ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0d99ff]/35"
+              >
+                <Plus size={13} />
+              </button>
             </div>
           </div>
 
-          {(primaryElement.gradients || []).map((gradient, gradientIndex) => (
-            <div
-              key={gradient.id}
-              className={`overflow-hidden rounded-xl border bg-white transition-all ${
-                gradient.visible
-                  ? 'border-[#dce3ec] shadow-[0_7px_18px_rgba(23,35,56,0.06)]'
-                  : 'border-[#e5e9ef] opacity-60'
-              }`}
-            >
-              <div className="flex items-center gap-2 border-b border-[#edf0f4] px-2 py-1.5">
-                <div
-                  className="h-5 w-8 rounded-md border border-black/10 shadow-inner"
-                  style={{ backgroundImage: gradientToCss(gradient) }}
-                />
-                <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-[#4b5563]">
-                  Linear gradient {gradientIndex + 1}
-                </span>
+          {!activeGradient ? (
+            <div className={`rounded-xl border bg-[#fbfcfd] p-2 transition-all ${
+              activeColorPicker === 'fill'
+                ? 'border-[#0d99ff] shadow-[0_0_0_3px_rgba(13,153,255,0.08)]'
+                : 'border-[#e2e7ee] hover:border-[#cdd4de]'
+            }`}>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => updateGradient(gradient.id, { visible: !gradient.visible })}
-                  aria-label={gradient.visible ? 'Hide gradient' : 'Show gradient'}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-[#9aa1ad] hover:bg-[#f3f6f9] hover:text-[#34383f]"
+                  onClick={() => setActiveColorPicker(activeColorPicker === 'fill' ? null : 'fill')}
+                  aria-label="Edit fill color"
+                  aria-expanded={activeColorPicker === 'fill'}
+                  className="relative h-9 w-9 flex-shrink-0 overflow-hidden rounded-lg border border-black/10 shadow-inner"
+                  style={transparencyGridStyle}
                 >
-                  {gradient.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                  <span
+                    className="absolute inset-0"
+                    style={{ backgroundColor: primaryElement.fill, opacity: primaryElement.fillOpacity }}
+                  />
                 </button>
-                <button
-                  onClick={() => removeGradient(gradient.id)}
-                  aria-label="Remove gradient"
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-[#a6acb5] hover:bg-red-50 hover:text-red-500"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-
-              <div className="space-y-2 p-2">
-                <div
-                  className="relative h-8 rounded-lg border border-black/10 shadow-inner"
-                  style={{ backgroundImage: gradientToCss(gradient) }}
-                >
-                  {gradient.stops.slice(0, 2).map((stop, stopIndex) => (
-                    <label
-                      key={`${gradient.id}-handle-${stopIndex}`}
-                      className={`absolute top-1/2 h-4 w-4 -translate-y-1/2 cursor-pointer rounded-full border-2 border-white shadow-[0_1px_4px_rgba(0,0,0,0.35)] ${
-                        stopIndex === 0 ? 'left-1.5' : 'right-1.5'
-                      }`}
-                      style={{ backgroundColor: stop.color }}
-                    >
+                <div className="min-w-0 flex-1">
+                  <div className="mb-0.5 grid grid-cols-[1fr_48px] gap-2 text-[8px] font-bold uppercase tracking-[0.12em] text-[#a0a7b2]">
+                    <span>Hex</span>
+                    <span className="text-right">Alpha</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_48px] gap-2">
+                    <div className="flex items-center rounded-md bg-white px-1.5 ring-1 ring-inset ring-[#e5e9ef] focus-within:ring-[#0d99ff]">
+                      <span className="text-[10px] text-[#a0a7b2]">#</span>
                       <input
-                        type="color"
-                        value={normalizeHexColor(stop.color)}
-                        onChange={(event) => updateGradientStop(gradient.id, stopIndex, event.target.value.toUpperCase())}
-                        aria-label={`Gradient ${gradientIndex + 1} color ${stopIndex + 1}`}
-                        className="absolute inset-0 cursor-pointer opacity-0"
+                        aria-label="Fill color hex"
+                        type="text"
+                        value={primaryElement.fill.toUpperCase().replace('#', '')}
+                        maxLength={6}
+                        onChange={(event) => {
+                          const hex = event.target.value.replace('#', '');
+                          if (hex.length <= 6) handleUpdate({ fill: `#${hex}` });
+                        }}
+                        className="w-full bg-transparent px-1 py-1 font-mono text-[11px] font-semibold uppercase text-[#34383f] outline-none"
                       />
-                    </label>
-                  ))}
+                    </div>
+                    <div className="flex items-center rounded-md bg-white px-1.5 ring-1 ring-inset ring-[#e5e9ef] focus-within:ring-[#0d99ff]">
+                      <input
+                        aria-label="Fill opacity"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={Math.round(primaryElement.fillOpacity * 100)}
+                        onChange={(event) => handleUpdate({ fillOpacity: Math.max(0, Math.min(100, Number(event.target.value))) / 100 })}
+                        className="w-full bg-transparent py-1 text-right font-mono text-[11px] font-semibold text-[#34383f] outline-none"
+                      />
+                      <span className="ml-0.5 text-[9px] text-[#a0a7b2]">%</span>
+                    </div>
+                  </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-1.5">
-                  {gradient.stops.slice(0, 2).map((stop, stopIndex) => (
-                    <label
-                      key={`${gradient.id}-color-${stopIndex}`}
-                      className="flex items-center gap-1 rounded-lg bg-[#f7f9fb] px-1.5 py-1 ring-1 ring-inset ring-[#e4e9ef] focus-within:ring-[#0d99ff]"
+                <button
+                  onClick={() => handleUpdate({ fillOpacity: primaryElement.fillOpacity === 0 ? 1 : 0 })}
+                  aria-label={primaryElement.fillOpacity === 0 ? 'Show fill' : 'Hide fill'}
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[#9aa1ad] hover:bg-white hover:text-[#34383f]"
+                >
+                  {primaryElement.fillOpacity === 0 ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {activeGradient.stops.map((stop, stopIndex) => {
+                const isSelected = stopIndex === selectedGradientStop;
+                const isVisible = stop.visible !== false;
+                return (
+                  <div
+                    key={`${activeGradient.id}-stop-${stopIndex}`}
+                    onClick={() => setSelectedGradientStop(stopIndex)}
+                    className={`grid h-8 grid-cols-[24px_1fr_46px_26px_26px] items-center gap-1 rounded-lg border px-1 transition-colors ${
+                      isSelected
+                        ? 'border-[#b8ddfb] bg-[#eef7ff]'
+                        : 'border-[#e5e9ef] bg-[#f7f8fa] hover:border-[#d4dae3]'
+                    } ${isVisible ? '' : 'opacity-50'}`}
+                  >
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedGradientStop(stopIndex);
+                        setActiveColorPicker('gradient');
+                      }}
+                      aria-label={`Edit gradient color ${stopIndex + 1}`}
+                      className="relative h-5 w-5 overflow-hidden rounded border border-black/10 shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0d99ff]/40"
+                      style={transparencyGridStyle}
                     >
                       <span
-                        className="relative h-4 w-4 flex-none overflow-hidden rounded-full border border-black/10"
-                        style={{ backgroundColor: stop.color }}
-                      >
-                        <input
-                          type="color"
-                          value={normalizeHexColor(stop.color)}
-                          onChange={(event) => updateGradientStop(gradient.id, stopIndex, event.target.value.toUpperCase())}
-                          aria-label={`Pick gradient ${gradientIndex + 1} color ${stopIndex + 1}`}
-                          className="absolute inset-0 cursor-pointer opacity-0"
-                        />
-                      </span>
-                      <input
-                        type="text"
-                        value={stop.color.toUpperCase()}
-                        maxLength={7}
-                        onChange={(event) => updateGradientStop(gradient.id, stopIndex, event.target.value)}
-                        aria-label={`Gradient ${gradientIndex + 1} hex ${stopIndex + 1}`}
-                        className="min-w-0 w-full bg-transparent font-mono text-[9px] font-semibold uppercase text-[#3f4650] outline-none"
+                        className="absolute inset-0"
+                        style={{ backgroundColor: normalizeHexColor(stop.color), opacity: stop.opacity }}
                       />
+                    </button>
+                    <input
+                      type="text"
+                      value={stop.color.replace('#', '').toUpperCase()}
+                      maxLength={6}
+                      onFocus={() => setSelectedGradientStop(stopIndex)}
+                      onChange={(event) => updateGradientStop(stopIndex, { color: `#${event.target.value.replace('#', '')}` })}
+                      aria-label={`Gradient color ${stopIndex + 1} hex`}
+                      className="min-w-0 w-full bg-transparent font-mono text-[10px] font-semibold uppercase text-[#34383f] outline-none"
+                    />
+                    <label className="flex items-center">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={Math.round(stop.opacity * 100)}
+                        onFocus={() => setSelectedGradientStop(stopIndex)}
+                        onChange={(event) => updateGradientStop(stopIndex, { opacity: Math.max(0, Math.min(100, Number(event.target.value))) / 100 })}
+                        aria-label={`Gradient color ${stopIndex + 1} opacity`}
+                        className="w-full bg-transparent text-right font-mono text-[10px] font-semibold text-[#34383f] outline-none"
+                      />
+                      <span className="ml-0.5 text-[8px] text-[#9aa1ad]">%</span>
                     </label>
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-2 gap-1.5">
-                  <label className="flex items-center rounded-lg bg-[#f7f9fb] px-2 py-1 ring-1 ring-inset ring-[#e4e9ef] focus-within:ring-[#0d99ff]">
-                    <span className="mr-1.5 text-[9px] font-bold text-[#9aa1ad]">∠</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="360"
-                      value={Math.round(gradient.angle)}
-                      onChange={(event) => updateGradient(gradient.id, { angle: Number(event.target.value) })}
-                      aria-label={`Gradient ${gradientIndex + 1} angle`}
-                      className="w-full bg-transparent text-right font-mono text-[10px] font-semibold text-[#3f4650] outline-none"
-                    />
-                    <span className="ml-0.5 text-[9px] text-[#9aa1ad]">°</span>
-                  </label>
-                  <label className="flex items-center rounded-lg bg-[#f7f9fb] px-2 py-1 ring-1 ring-inset ring-[#e4e9ef] focus-within:ring-[#0d99ff]">
-                    <Droplet size={10} className="mr-1.5 text-[#9aa1ad]" />
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={Math.round(gradient.opacity * 100)}
-                      onChange={(event) => updateGradient(gradient.id, { opacity: Math.max(0, Math.min(100, Number(event.target.value))) / 100 })}
-                      aria-label={`Gradient ${gradientIndex + 1} opacity`}
-                      className="w-full bg-transparent text-right font-mono text-[10px] font-semibold text-[#3f4650] outline-none"
-                    />
-                    <span className="ml-0.5 text-[9px] text-[#9aa1ad]">%</span>
-                  </label>
-                </div>
-              </div>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        updateGradientStop(stopIndex, { visible: !isVisible });
+                      }}
+                      aria-label={isVisible ? `Hide gradient color ${stopIndex + 1}` : `Show gradient color ${stopIndex + 1}`}
+                      className="flex h-6 w-6 items-center justify-center rounded text-[#858d99] hover:bg-white hover:text-[#34383f]"
+                    >
+                      {isVisible ? <Eye size={13} /> : <EyeOff size={13} />}
+                    </button>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeGradientStop(stopIndex);
+                      }}
+                      aria-label={`Remove gradient color ${stopIndex + 1}`}
+                      className="flex h-6 w-6 items-center justify-center rounded text-[#858d99] hover:bg-red-50 hover:text-red-500"
+                    >
+                      <Minus size={13} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          ))}
+          )}
 
-          {activeColorPicker === 'fill' && (
+          {activeColorPicker === 'fill' && !activeGradient && (
             <ColorPickerPopover
               label="Fill color"
               color={primaryElement.fill}
               opacity={primaryElement.fillOpacity}
               onChangeColor={(fill) => handleUpdate({ fill })}
               onChangeOpacity={(fillOpacity) => handleUpdate({ fillOpacity })}
+              onClose={() => setActiveColorPicker(null)}
+            />
+          )}
+
+          {activeColorPicker === 'gradient' && activeGradient && currentGradientStop && (
+            <ColorPickerPopover
+              label={`Gradient color ${selectedGradientStop + 1}`}
+              color={normalizeHexColor(currentGradientStop.color)}
+              opacity={currentGradientStop.opacity}
+              onChangeColor={(color) => updateGradientStop(selectedGradientStop, { color })}
+              onChangeOpacity={(opacity) => updateGradientStop(selectedGradientStop, { opacity })}
               onClose={() => setActiveColorPicker(null)}
             />
           )}

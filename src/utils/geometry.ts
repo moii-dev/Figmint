@@ -3,6 +3,7 @@ import { getTopLevelSelectionIds, getWorldRect } from './hierarchy';
 import {
   getSvgGradientCoordinates,
   getSvgGradientId,
+  getRenderableGradientStops,
   getVisibleGradients,
 } from './gradient';
 
@@ -301,7 +302,7 @@ export function generateSvgString(
         const id = getSvgGradientId('export', el.id, gradient.id);
         const coordinates = getSvgGradientCoordinates(gradient.angle);
         svgContent += `    <linearGradient id="${id}" x1="${coordinates.x1}" y1="${coordinates.y1}" x2="${coordinates.x2}" y2="${coordinates.y2}">\n`;
-        for (const stop of gradient.stops) {
+        for (const stop of getRenderableGradientStops(gradient)) {
           svgContent += `      <stop offset="${Math.max(0, Math.min(100, stop.position))}%" stop-color="${escapeXml(stop.color)}" stop-opacity="${Math.max(0, Math.min(1, stop.opacity))}" />\n`;
         }
         svgContent += `    </linearGradient>\n`;

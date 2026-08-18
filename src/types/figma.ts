@@ -43,6 +43,7 @@ export interface GradientStop {
   color: string;
   position: number;
   opacity: number;
+  visible?: boolean;
 }
 
 export interface LinearGradientFill {

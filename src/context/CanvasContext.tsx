@@ -47,10 +47,13 @@ function normalizeImportedGradients(value: unknown): LinearGradientFill[] | unde
     const raw = item as Partial<LinearGradientFill>;
     if (!Array.isArray(raw.stops) || raw.stops.length < 2) return [];
 
-    const stops = raw.stops.slice(0, 2).map((stop, stopIndex) => ({
+    const stops = raw.stops.map((stop, stopIndex) => ({
       color: typeof stop?.color === 'string' ? stop.color : stopIndex === 0 ? '#8B5CF6' : '#06B6D4',
-      position: Number.isFinite(stop?.position) ? Math.max(0, Math.min(100, Number(stop.position))) : stopIndex * 100,
+      position: Number.isFinite(stop?.position)
+        ? Math.max(0, Math.min(100, Number(stop.position)))
+        : (stopIndex / Math.max(1, raw.stops!.length - 1)) * 100,
       opacity: Number.isFinite(stop?.opacity) ? Math.max(0, Math.min(1, Number(stop.opacity))) : 1,
+      visible: stop?.visible !== false,
     }));
 
     return [{
