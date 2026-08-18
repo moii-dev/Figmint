@@ -1,0 +1,6 @@
+{
+  "name": "Figma Canvas Clone",
+  "description": "Modern web-based Figma vector design tool with infinite canvas, device presets, shape creation, layers, and property inspector.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

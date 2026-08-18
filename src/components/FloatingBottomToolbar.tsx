@@ -1,0 +1,475 @@
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  MousePointer2,
+  Hand,
+  Frame,
+  Square,
+  Circle,
+  Triangle,
+  Type,
+  PenTool,
+  Sparkles,
+  ChevronDown,
+  Smartphone,
+  Laptop,
+  Share2,
+  Component,
+  Undo2,
+  Redo2,
+  Grid,
+  Magnet,
+} from 'lucide-react';
+import { useCanvas } from '../context/CanvasContext';
+import { ToolType, DevicePreset } from '../types/figma';
+import { DEVICE_PRESETS } from '../data/presets';
+
+export const FloatingBottomToolbar: React.FC = () => {
+  const {
+    activeTool,
+    setTool,
+    spawnPresetFrame,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    gridVisible,
+    setGridVisible,
+    snapToGrid,
+    setSnapToGrid,
+    setActiveLeftTab,
+  } = useCanvas();
+
+  const [openDropdown, setOpenDropdown] = useState<'move' | 'frame' | 'shape' | 'pen' | 'text' | 'resources' | null>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const mobilePresets = DEVICE_PRESETS.filter((p) => p.category === 'mobile');
+  const desktopPresets = DEVICE_PRESETS.filter((p) => p.category === 'desktop');
+  const socialPresets = DEVICE_PRESETS.filter((p) => p.category === 'social');
+
+  const getActiveShapeIcon = () => {
+    switch (activeTool) {
+      case 'ellipse':
+        return <Circle size={17} />;
+      case 'triangle':
+        return <Triangle size={17} />;
+      case 'rectangle':
+      default:
+        return <Square size={17} />;
+    }
+  };
+
+  return (
+    <div
+      ref={toolbarRef}
+      id="figma-floating-toolbar"
+      className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 select-none"
+    >
+      <div className="bg-white/95 backdrop-blur-md border border-[#e2e8f0] shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-2xl p-1.5 flex items-center gap-1">
+        {/* 1. Move / Cursor Tool */}
+        <div className="relative">
+          <div className="flex items-center rounded-xl overflow-hidden">
+            <button
+              id="tool-move-btn"
+              onClick={() => {
+                setTool('select');
+                setOpenDropdown(null);
+              }}
+              title="Move (V)"
+              className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                activeTool === 'select'
+                  ? 'bg-[#0d99ff] text-white shadow-sm'
+                  : 'text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111]'
+              }`}
+            >
+              <MousePointer2 size={17} />
+            </button>
+            <button
+              onClick={() => setOpenDropdown(openDropdown === 'move' ? null : 'move')}
+              className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
+                activeTool === 'select' ? 'text-white/80 hover:text-white' : ''
+              }`}
+            >
+              <ChevronDown size={12} />
+            </button>
+          </div>
+
+          {/* Move tools dropdown */}
+          {openDropdown === 'move' && (
+            <div className="absolute bottom-full mb-2 left-0 w-44 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-50 text-xs text-[#222222]">
+              <button
+                onClick={() => {
+                  setTool('select');
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <MousePointer2 size={14} />
+                  <span className="font-medium">Move</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">V</span>
+              </button>
+              <button
+                onClick={() => {
+                  setTool('hand');
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Hand size={14} />
+                  <span className="font-medium">Hand tool</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">H</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 2. Frame Tool (# icon) with presets */}
+        <div className="relative">
+          <div className="flex items-center rounded-xl overflow-hidden">
+            <button
+              id="tool-frame-btn"
+              onClick={() => {
+                setTool('frame');
+                setOpenDropdown(null);
+              }}
+              title="Frame Tool (F)"
+              className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                activeTool === 'frame'
+                  ? 'bg-[#0d99ff] text-white shadow-sm'
+                  : 'text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111]'
+              }`}
+            >
+              <Frame size={17} />
+            </button>
+            <button
+              onClick={() => setOpenDropdown(openDropdown === 'frame' ? null : 'frame')}
+              className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
+                activeTool === 'frame' ? 'text-white/80 hover:text-white' : ''
+              }`}
+            >
+              <ChevronDown size={12} />
+            </button>
+          </div>
+
+          {/* Frame Presets Dropdown */}
+          {openDropdown === 'frame' && (
+            <div className="absolute bottom-full mb-2 left-0 w-72 bg-white border border-[#e2e8f0] rounded-xl shadow-2xl p-2 z-50 text-xs max-h-[460px] overflow-y-auto custom-scrollbar">
+              <div className="px-2 py-1 text-[11px] font-semibold text-[#888888] uppercase tracking-wider">
+                Device Presets
+              </div>
+
+              {/* Mobile */}
+              <div className="mt-1">
+                <div className="px-2 py-1 text-[11px] font-semibold text-[#0d99ff] flex items-center gap-1.5">
+                  <Smartphone size={13} /> Phones & Mobile
+                </div>
+                {mobilePresets.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      spawnPresetFrame(p);
+                      setOpenDropdown(null);
+                    }}
+                    className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+                  >
+                    <span className="font-medium truncate">{p.name}</span>
+                    <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                      {p.width} × {p.height}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="h-[1px] bg-[#e2e8f0] my-2" />
+
+              {/* Desktop */}
+              <div>
+                <div className="px-2 py-1 text-[11px] font-semibold text-[#10b981] flex items-center gap-1.5">
+                  <Laptop size={13} /> Desktop & OS
+                </div>
+                {desktopPresets.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      spawnPresetFrame(p);
+                      setOpenDropdown(null);
+                    }}
+                    className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+                  >
+                    <span className="font-medium truncate">{p.name}</span>
+                    <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                      {p.width} × {p.height}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="h-[1px] bg-[#e2e8f0] my-2" />
+
+              {/* Social */}
+              <div>
+                <div className="px-2 py-1 text-[11px] font-semibold text-[#f59e0b] flex items-center gap-1.5">
+                  <Share2 size={13} /> Aspect Ratios & Social
+                </div>
+                {socialPresets.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      spawnPresetFrame(p);
+                      setOpenDropdown(null);
+                    }}
+                    className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+                  >
+                    <span className="font-medium truncate">{p.name}</span>
+                    <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                      {p.width} × {p.height}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 3. Shape Tools (Rectangle / Ellipse / Triangle) */}
+        <div className="relative">
+          <div className="flex items-center rounded-xl overflow-hidden">
+            <button
+              id="tool-shape-btn"
+              onClick={() => {
+                if (['rectangle', 'ellipse', 'triangle'].includes(activeTool)) {
+                  setTool('select');
+                } else {
+                  setTool('rectangle');
+                }
+                setOpenDropdown(null);
+              }}
+              title="Shape Tool (R)"
+              className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                ['rectangle', 'ellipse', 'triangle'].includes(activeTool)
+                  ? 'bg-[#0d99ff] text-white shadow-sm'
+                  : 'text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111]'
+              }`}
+            >
+              {getActiveShapeIcon()}
+            </button>
+            <button
+              onClick={() => setOpenDropdown(openDropdown === 'shape' ? null : 'shape')}
+              className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
+                ['rectangle', 'ellipse', 'triangle'].includes(activeTool) ? 'text-white/80 hover:text-white' : ''
+              }`}
+            >
+              <ChevronDown size={12} />
+            </button>
+          </div>
+
+          {/* Shape selection dropdown */}
+          {openDropdown === 'shape' && (
+            <div className="absolute bottom-full mb-2 left-0 w-44 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-50 text-xs text-[#222222]">
+              <button
+                onClick={() => {
+                  setTool('rectangle');
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Square size={14} />
+                  <span className="font-medium">Rectangle</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">R</span>
+              </button>
+              <button
+                onClick={() => {
+                  setTool('ellipse');
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Circle size={14} />
+                  <span className="font-medium">Ellipse</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">O</span>
+              </button>
+              <button
+                onClick={() => {
+                  setTool('triangle');
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Triangle size={14} />
+                  <span className="font-medium">Polygon / Triangle</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">T</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 4. Pen / Vector Tool */}
+        <div className="relative">
+          <div className="flex items-center rounded-xl overflow-hidden">
+            <button
+              id="tool-pen-btn"
+              onClick={() => {
+                setTool(activeTool === 'line' ? 'select' : 'line');
+                setOpenDropdown(null);
+              }}
+              title="Pen / Line Tool (P)"
+              className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                activeTool === 'line'
+                  ? 'bg-[#0d99ff] text-white shadow-sm'
+                  : 'text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111]'
+              }`}
+            >
+              <PenTool size={17} />
+            </button>
+            <button
+              onClick={() => setOpenDropdown(openDropdown === 'pen' ? null : 'pen')}
+              className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
+                activeTool === 'line' ? 'text-white/80 hover:text-white' : ''
+              }`}
+            >
+              <ChevronDown size={12} />
+            </button>
+          </div>
+
+          {openDropdown === 'pen' && (
+            <div className="absolute bottom-full mb-2 left-0 w-40 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-50 text-xs text-[#222222]">
+              <button
+                onClick={() => {
+                  setTool('line');
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <PenTool size={14} />
+                  <span className="font-medium">Line / Vector</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">L</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 5. Text Tool */}
+        <div className="relative">
+          <div className="flex items-center rounded-xl overflow-hidden">
+            <button
+              id="tool-text-btn"
+              onClick={() => {
+                setTool(activeTool === 'text' ? 'select' : 'text');
+                setOpenDropdown(null);
+              }}
+              title="Text Tool (T)"
+              className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                activeTool === 'text'
+                  ? 'bg-[#0d99ff] text-white shadow-sm'
+                  : 'text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111]'
+              }`}
+            >
+              <Type size={17} />
+            </button>
+            <button
+              onClick={() => setOpenDropdown(openDropdown === 'text' ? null : 'text')}
+              className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
+                activeTool === 'text' ? 'text-white/80 hover:text-white' : ''
+              }`}
+            >
+              <ChevronDown size={12} />
+            </button>
+          </div>
+
+          {openDropdown === 'text' && (
+            <div className="absolute bottom-full mb-2 left-0 w-40 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-50 text-xs text-[#222222]">
+              <button
+                onClick={() => {
+                  setTool('text');
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Type size={14} />
+                  <span className="font-medium">Text Box</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">T</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 6. Resources / Actions / Components */}
+        <button
+          onClick={() => {
+            setActiveLeftTab('assets');
+          }}
+          title="Components & Assets"
+          className="p-2 rounded-xl flex items-center justify-center text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111] transition-all cursor-pointer"
+        >
+          <Component size={17} />
+        </button>
+
+        <div className="h-5 w-[1px] bg-[#e2e8f0] mx-0.5" />
+
+        {/* Undo / Redo */}
+        <button
+          onClick={undo}
+          disabled={!canUndo}
+          title="Undo (Ctrl+Z)"
+          className="p-1.5 rounded-lg text-[#555555] hover:bg-[#f1f5f9] hover:text-[#111111] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+        >
+          <Undo2 size={15} />
+        </button>
+        <button
+          onClick={redo}
+          disabled={!canRedo}
+          title="Redo (Ctrl+Y)"
+          className="p-1.5 rounded-lg text-[#555555] hover:bg-[#f1f5f9] hover:text-[#111111] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+        >
+          <Redo2 size={15} />
+        </button>
+
+        <div className="h-5 w-[1px] bg-[#e2e8f0] mx-0.5" />
+
+        {/* Snapping / Grid toggle */}
+        <button
+          onClick={() => setSnapToGrid(!snapToGrid)}
+          title={`Smart Snapping (${snapToGrid ? 'On' : 'Off'})`}
+          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            snapToGrid ? 'text-[#0d99ff] bg-[#0d99ff]/10' : 'text-[#777777] hover:bg-[#f1f5f9]'
+          }`}
+        >
+          <Magnet size={15} />
+        </button>
+        <button
+          onClick={() => setGridVisible(!gridVisible)}
+          title={`Dot Grid (${gridVisible ? 'On' : 'Off'})`}
+          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            gridVisible ? 'text-[#0d99ff] bg-[#0d99ff]/10' : 'text-[#777777] hover:bg-[#f1f5f9]'
+          }`}
+        >
+          <Grid size={15} />
+        </button>
+      </div>
+    </div>
+  );
+};
