@@ -59,7 +59,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
   const [activeColorPicker, setActiveColorPicker] = useState<'fill' | 'gradient' | 'stroke' | 'shadow' | null>(null);
   const [selectedGradientStop, setSelectedGradientStop] = useState(0);
   const [aspectLocked, setAspectLocked] = useState(false);
-  const [isStrokeOpen, setIsStrokeOpen] = useState(true);
+  const [isStrokeOpen, setIsStrokeOpen] = useState(false);
   const [isEffectsOpen, setIsEffectsOpen] = useState(true);
   const [isExportOpen, setIsExportOpen] = useState(true);
 
@@ -107,6 +107,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
   }
 
   const isShape = ['rectangle', 'frame'].includes(primaryElement.type);
+  const hasVisibleStroke = primaryElement.strokeWidth > 0 && primaryElement.strokeOpacity > 0;
 
   const handleUpdate = (changes: Partial<CanvasElement>) => {
     updateElement(primaryElement.id, changes);
@@ -648,24 +649,31 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
               <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700 group-hover:text-black">
                 Stroke
               </span>
-              <span className="text-[9px] font-semibold text-[#9aa1ad]">{primaryElement.strokeStyle || 'solid'}</span>
+              <span className="text-[9px] font-semibold text-[#9aa1ad]">
+                {hasVisibleStroke ? primaryElement.strokeStyle || 'solid' : 'none'}
+              </span>
             </button>
             <button
               onClick={() => {
-                if (primaryElement.strokeWidth === 0 || primaryElement.strokeOpacity === 0) {
-                  handleUpdate({
-                    strokeWidth: Math.max(1, primaryElement.strokeWidth),
-                    strokeOpacity: 1,
-                  });
+                if (hasVisibleStroke) {
+                  handleUpdate({ strokeWidth: 0 });
+                  setIsStrokeOpen(false);
+                  setActiveColorPicker(null);
+                  return;
                 }
+
+                handleUpdate({
+                  strokeWidth: Math.max(1, primaryElement.strokeWidth),
+                  strokeOpacity: 1,
+                });
                 setIsStrokeOpen(true);
-                setActiveColorPicker(activeColorPicker === 'stroke' ? null : 'stroke');
+                setActiveColorPicker('stroke');
               }}
               className="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-[#eef7ff] hover:text-[#0d99ff]"
-              aria-label="Edit stroke"
-              aria-expanded={activeColorPicker === 'stroke'}
+              aria-label={hasVisibleStroke ? 'Remove stroke' : 'Add stroke'}
+              title={hasVisibleStroke ? 'Remove stroke' : 'Add stroke'}
             >
-              <Plus size={13} />
+              {hasVisibleStroke ? <Minus size={13} /> : <Plus size={13} />}
             </button>
           </div>
 
@@ -690,7 +698,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
                     />
                     <span
                       className="absolute inset-x-1 bottom-1.5 rounded-full"
-                      style={{ height: Math.max(1, Math.min(4, primaryElement.strokeWidth)), backgroundColor: primaryElement.stroke }}
+                      style={{
+                        height: Math.max(1, Math.min(4, primaryElement.strokeWidth)),
+                        backgroundColor: primaryElement.stroke,
+                        opacity: primaryElement.strokeOpacity,
+                      }}
                     />
                   </button>
 

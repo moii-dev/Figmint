@@ -29,9 +29,21 @@ import { useCanvas } from '../context/CanvasContext';
 import { DEVICE_PRESETS } from '../data/presets';
 
 type ShapeTool = 'rectangle' | 'ellipse' | 'triangle' | 'polygon' | 'diamond' | 'star';
+type ToolbarDropdown = 'move' | 'frame' | 'shape' | 'pen' | 'text';
 
 const LAST_SHAPE_TOOL_KEY = 'figmint_last_shape_tool';
 const SHAPE_TOOLS: ShapeTool[] = ['rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star'];
+const DROPDOWN_WIDTHS: Record<ToolbarDropdown, number> = {
+  move: 176,
+  frame: 288,
+  shape: 224,
+  pen: 176,
+  text: 176,
+};
+const MENU_ITEM_CLASS =
+  'group w-full px-3 py-2 text-left flex items-center justify-between text-[#2f343b] hover:bg-[#0d99ff] hover:text-white focus-visible:bg-[#0d99ff] focus-visible:text-white transition-colors cursor-pointer';
+const MENU_META_CLASS =
+  'text-[10px] text-[#7b8491] font-mono group-hover:text-white group-focus-visible:text-white transition-colors';
 
 const isShapeTool = (tool: string): tool is ShapeTool => SHAPE_TOOLS.includes(tool as ShapeTool);
 
@@ -54,7 +66,7 @@ export const FloatingBottomToolbar: React.FC = () => {
     importMediaFiles,
   } = useCanvas();
 
-  const [openDropdown, setOpenDropdown] = useState<'move' | 'frame' | 'shape' | 'pen' | 'text' | 'resources' | null>(null);
+  const [openDropdown, setOpenDropdown] = useState<ToolbarDropdown | null>(null);
   const [lastShapeTool, setLastShapeTool] = useState<ShapeTool>(() => {
     try {
       const savedTool = localStorage.getItem(LAST_SHAPE_TOOL_KEY);
@@ -65,8 +77,11 @@ export const FloatingBottomToolbar: React.FC = () => {
   });
   const [dropdownPosition, setDropdownPosition] = useState<{ left: number; bottom: number } | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const moveDropdownButtonRef = useRef<HTMLButtonElement>(null);
   const frameDropdownButtonRef = useRef<HTMLButtonElement>(null);
   const shapeDropdownButtonRef = useRef<HTMLButtonElement>(null);
+  const penDropdownButtonRef = useRef<HTMLButtonElement>(null);
+  const textDropdownButtonRef = useRef<HTMLButtonElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
 
   // Close dropdown on outside click
@@ -98,17 +113,22 @@ export const FloatingBottomToolbar: React.FC = () => {
   }, [activeTool]);
 
   useEffect(() => {
-    if (openDropdown !== 'frame' && openDropdown !== 'shape') {
+    if (!openDropdown) {
       setDropdownPosition(null);
       return;
     }
 
     const updatePosition = () => {
-      const isFrameDropdown = openDropdown === 'frame';
-      const button = isFrameDropdown ? frameDropdownButtonRef.current : shapeDropdownButtonRef.current;
+      const button = {
+        move: moveDropdownButtonRef.current,
+        frame: frameDropdownButtonRef.current,
+        shape: shapeDropdownButtonRef.current,
+        pen: penDropdownButtonRef.current,
+        text: textDropdownButtonRef.current,
+      }[openDropdown];
       if (!button) return;
       const rect = button.getBoundingClientRect();
-      const menuWidth = isFrameDropdown ? 288 : 224;
+      const menuWidth = DROPDOWN_WIDTHS[openDropdown];
       setDropdownPosition({
         left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)),
         bottom: window.innerHeight - rect.top + 8,
@@ -186,8 +206,11 @@ export const FloatingBottomToolbar: React.FC = () => {
               <MousePointer2 size={17} />
             </button>
             <button
+              ref={moveDropdownButtonRef}
               onClick={() => setOpenDropdown(openDropdown === 'move' ? null : 'move')}
               aria-label="Choose navigation tool"
+              aria-expanded={openDropdown === 'move'}
+              aria-haspopup="menu"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
                 activeTool === 'select' ? 'text-white/80 hover:text-white' : ''
               }`}
@@ -196,37 +219,6 @@ export const FloatingBottomToolbar: React.FC = () => {
             </button>
           </div>
 
-          {/* Move tools dropdown */}
-          {openDropdown === 'move' && (
-            <div className="absolute bottom-full mb-2 left-0 w-44 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-50 text-xs text-[#222222]">
-              <button
-                onClick={() => {
-                  setTool('select');
-                  setOpenDropdown(null);
-                }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <MousePointer2 size={14} />
-                  <span className="font-medium">Move</span>
-                </div>
-                <span className="text-[10px] text-gray-400 font-mono">V</span>
-              </button>
-              <button
-                onClick={() => {
-                  setTool('hand');
-                  setOpenDropdown(null);
-                }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Hand size={14} />
-                  <span className="font-medium">Hand tool</span>
-                </div>
-                <span className="text-[10px] text-gray-400 font-mono">H</span>
-              </button>
-            </div>
-          )}
         </div>
 
         {/* 2. Frame Tool (# icon) with presets */}
@@ -314,8 +306,11 @@ export const FloatingBottomToolbar: React.FC = () => {
               <PenTool size={17} />
             </button>
             <button
+              ref={penDropdownButtonRef}
               onClick={() => setOpenDropdown(openDropdown === 'pen' ? null : 'pen')}
               aria-label="Choose line tool"
+              aria-expanded={openDropdown === 'pen'}
+              aria-haspopup="menu"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
                 activeTool === 'line' || activeTool === 'arrow' ? 'text-white/80 hover:text-white' : ''
               }`}
@@ -323,37 +318,6 @@ export const FloatingBottomToolbar: React.FC = () => {
               <ChevronDown size={12} />
             </button>
           </div>
-
-          {openDropdown === 'pen' && (
-            <div className="absolute bottom-full mb-2 left-0 w-40 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-50 text-xs text-[#222222]">
-              <button
-                onClick={() => {
-                  setTool('line');
-                  setOpenDropdown(null);
-                }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <PenTool size={14} />
-                  <span className="font-medium">Line / Vector</span>
-                </div>
-                <span className="text-[10px] text-gray-400 font-mono">L</span>
-              </button>
-              <button
-                onClick={() => {
-                  setTool('arrow');
-                  setOpenDropdown(null);
-                }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <ArrowRight size={14} />
-                  <span className="font-medium">Arrow</span>
-                </div>
-                <span className="text-[10px] text-gray-400 font-mono">Shift+L</span>
-              </button>
-            </div>
-          )}
         </div>
 
         {/* 5. Text Tool */}
@@ -375,8 +339,11 @@ export const FloatingBottomToolbar: React.FC = () => {
               <Type size={17} />
             </button>
             <button
+              ref={textDropdownButtonRef}
               onClick={() => setOpenDropdown(openDropdown === 'text' ? null : 'text')}
               aria-label="Choose text tool"
+              aria-expanded={openDropdown === 'text'}
+              aria-haspopup="menu"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
                 activeTool === 'text' ? 'text-white/80 hover:text-white' : ''
               }`}
@@ -384,24 +351,6 @@ export const FloatingBottomToolbar: React.FC = () => {
               <ChevronDown size={12} />
             </button>
           </div>
-
-          {openDropdown === 'text' && (
-            <div className="absolute bottom-full mb-2 left-0 w-40 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-50 text-xs text-[#222222]">
-              <button
-                onClick={() => {
-                  setTool('text');
-                  setOpenDropdown(null);
-                }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Type size={14} />
-                  <span className="font-medium">Text Box</span>
-                </div>
-                <span className="text-[10px] text-gray-400 font-mono">T</span>
-              </button>
-            </div>
-          )}
         </div>
 
         {/* 6. Resources / Actions / Components */}
@@ -467,12 +416,45 @@ export const FloatingBottomToolbar: React.FC = () => {
           <Ruler size={15} />
         </button>
       </div>
+      {openDropdown === 'move' && dropdownPosition && createPortal(
+        <div
+          data-toolbar-dropdown
+          role="menu"
+          aria-label="Navigation tools"
+          className="fixed w-44 max-w-[calc(100vw-16px)] bg-white border border-[#d8dee7] rounded-xl shadow-xl py-1 z-[60] text-xs"
+          style={dropdownPosition}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('select');
+              setOpenDropdown(null);
+            }}
+            className={MENU_ITEM_CLASS}
+          >
+            <span className="flex items-center gap-2"><MousePointer2 size={14} /><span className="font-medium">Move</span></span>
+            <span className={MENU_META_CLASS}>V</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('hand');
+              setOpenDropdown(null);
+            }}
+            className={MENU_ITEM_CLASS}
+          >
+            <span className="flex items-center gap-2"><Hand size={14} /><span className="font-medium">Hand tool</span></span>
+            <span className={MENU_META_CLASS}>H</span>
+          </button>
+        </div>,
+        document.body
+      )}
       {openDropdown === 'frame' && dropdownPosition && createPortal(
         <div
           data-toolbar-dropdown
           role="menu"
           aria-label="Device presets"
-          className="fixed w-72 bg-white border border-[#e2e8f0] rounded-xl shadow-2xl p-2 z-[60] text-xs overflow-y-auto custom-scrollbar"
+          className="fixed w-72 max-w-[calc(100vw-16px)] bg-white border border-[#e2e8f0] rounded-xl shadow-2xl p-2 z-[60] text-xs overflow-y-auto custom-scrollbar"
           style={{ ...dropdownPosition, maxHeight: 'min(460px, calc(100vh - 80px))' }}
         >
           <div className="px-2 py-1 text-[11px] font-semibold text-[#888888] uppercase tracking-wider">
@@ -491,10 +473,10 @@ export const FloatingBottomToolbar: React.FC = () => {
                   spawnPresetFrame(preset);
                   setOpenDropdown(null);
                 }}
-                className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+                className={`${MENU_ITEM_CLASS} rounded-lg px-2 py-1.5`}
               >
                 <span className="font-medium truncate">{preset.name}</span>
-                <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                <span className={`${MENU_META_CLASS} ml-2 flex-shrink-0`}>
                   {preset.width} × {preset.height}
                 </span>
               </button>
@@ -515,10 +497,10 @@ export const FloatingBottomToolbar: React.FC = () => {
                   spawnPresetFrame(preset);
                   setOpenDropdown(null);
                 }}
-                className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+                className={`${MENU_ITEM_CLASS} rounded-lg px-2 py-1.5`}
               >
                 <span className="font-medium truncate">{preset.name}</span>
-                <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                <span className={`${MENU_META_CLASS} ml-2 flex-shrink-0`}>
                   {preset.width} × {preset.height}
                 </span>
               </button>
@@ -539,10 +521,10 @@ export const FloatingBottomToolbar: React.FC = () => {
                   spawnPresetFrame(preset);
                   setOpenDropdown(null);
                 }}
-                className="w-full px-2 py-1.5 text-left rounded-lg flex items-center justify-between hover:bg-[#0d99ff] hover:text-white text-[#333333] transition-colors cursor-pointer"
+                className={`${MENU_ITEM_CLASS} rounded-lg px-2 py-1.5`}
               >
                 <span className="font-medium truncate">{preset.name}</span>
-                <span className="text-[10px] text-gray-400 font-mono ml-2 flex-shrink-0">
+                <span className={`${MENU_META_CLASS} ml-2 flex-shrink-0`}>
                   {preset.width} × {preset.height}
                 </span>
               </button>
@@ -556,7 +538,7 @@ export const FloatingBottomToolbar: React.FC = () => {
           data-toolbar-dropdown
           role="menu"
           aria-label="Shape tools"
-          className="fixed w-56 bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-[60] text-xs text-[#222222]"
+          className="fixed w-56 max-w-[calc(100vw-16px)] bg-white border border-[#e2e8f0] rounded-xl shadow-xl py-1 z-[60] text-xs text-[#222222]"
           style={dropdownPosition}
         >
           <button
@@ -565,13 +547,13 @@ export const FloatingBottomToolbar: React.FC = () => {
               setTool('rectangle');
               setOpenDropdown(null);
             }}
-            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+            className={MENU_ITEM_CLASS}
           >
             <div className="flex items-center gap-2">
               <Square size={14} />
               <span className="font-medium">Rectangle</span>
             </div>
-            <span className="text-[10px] text-gray-400 font-mono">R</span>
+            <span className={MENU_META_CLASS}>R</span>
           </button>
           <button
             role="menuitem"
@@ -579,13 +561,13 @@ export const FloatingBottomToolbar: React.FC = () => {
               setTool('ellipse');
               setOpenDropdown(null);
             }}
-            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+            className={MENU_ITEM_CLASS}
           >
             <div className="flex items-center gap-2">
               <Circle size={14} />
               <span className="font-medium">Ellipse</span>
             </div>
-            <span className="text-[10px] text-gray-400 font-mono">O</span>
+            <span className={MENU_META_CLASS}>O</span>
           </button>
           <button
             role="menuitem"
@@ -593,13 +575,13 @@ export const FloatingBottomToolbar: React.FC = () => {
               setTool('triangle');
               setOpenDropdown(null);
             }}
-            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+            className={MENU_ITEM_CLASS}
           >
             <div className="flex items-center gap-2">
               <Triangle size={14} />
               <span className="font-medium">Polygon / Triangle</span>
             </div>
-            <span className="text-[10px] text-gray-400 font-mono">—</span>
+            <span className={MENU_META_CLASS}>—</span>
           </button>
           <button
             role="menuitem"
@@ -607,7 +589,7 @@ export const FloatingBottomToolbar: React.FC = () => {
               setTool('polygon');
               setOpenDropdown(null);
             }}
-            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+            className={MENU_ITEM_CLASS}
           >
             <div className="flex items-center gap-2">
               <Hexagon size={14} />
@@ -620,7 +602,7 @@ export const FloatingBottomToolbar: React.FC = () => {
               setTool('diamond');
               setOpenDropdown(null);
             }}
-            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+            className={MENU_ITEM_CLASS}
           >
             <div className="flex items-center gap-2">
               <Diamond size={14} />
@@ -633,7 +615,7 @@ export const FloatingBottomToolbar: React.FC = () => {
               setTool('star');
               setOpenDropdown(null);
             }}
-            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+            className={MENU_ITEM_CLASS}
           >
             <div className="flex items-center gap-2">
               <Star size={14} />
@@ -647,13 +629,68 @@ export const FloatingBottomToolbar: React.FC = () => {
               mediaInputRef.current?.click();
               setOpenDropdown(null);
             }}
-            className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+            className={MENU_ITEM_CLASS}
           >
             <div className="flex items-center gap-2">
               <FileImage size={14} />
               <span className="font-medium">Image / video</span>
             </div>
-            <span className="text-[10px] text-gray-400 font-mono">Ctrl+Shift+K</span>
+            <span className={MENU_META_CLASS}>Ctrl+Shift+K</span>
+          </button>
+        </div>,
+        document.body
+      )}
+      {openDropdown === 'pen' && dropdownPosition && createPortal(
+        <div
+          data-toolbar-dropdown
+          role="menu"
+          aria-label="Line tools"
+          className="fixed w-44 max-w-[calc(100vw-16px)] bg-white border border-[#d8dee7] rounded-xl shadow-xl py-1 z-[60] text-xs"
+          style={dropdownPosition}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('line');
+              setOpenDropdown(null);
+            }}
+            className={MENU_ITEM_CLASS}
+          >
+            <span className="flex items-center gap-2"><PenTool size={14} /><span className="font-medium">Line / Vector</span></span>
+            <span className={MENU_META_CLASS}>L</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('arrow');
+              setOpenDropdown(null);
+            }}
+            className={MENU_ITEM_CLASS}
+          >
+            <span className="flex items-center gap-2"><ArrowRight size={14} /><span className="font-medium">Arrow</span></span>
+            <span className={MENU_META_CLASS}>Shift+L</span>
+          </button>
+        </div>,
+        document.body
+      )}
+      {openDropdown === 'text' && dropdownPosition && createPortal(
+        <div
+          data-toolbar-dropdown
+          role="menu"
+          aria-label="Text tools"
+          className="fixed w-44 max-w-[calc(100vw-16px)] bg-white border border-[#d8dee7] rounded-xl shadow-xl py-1 z-[60] text-xs"
+          style={dropdownPosition}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTool('text');
+              setOpenDropdown(null);
+            }}
+            className={MENU_ITEM_CLASS}
+          >
+            <span className="flex items-center gap-2"><Type size={14} /><span className="font-medium">Text Box</span></span>
+            <span className={MENU_META_CLASS}>T</span>
           </button>
         </div>,
         document.body

@@ -181,12 +181,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
                   exportAll('png', 2);
                   setIsMainMenuOpen(false);
                 }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+                className="group w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
               >
                 <span className="flex items-center gap-2.5">
                   <Download size={14} /> Export PNG (2x)
                 </span>
-                <span className="text-[10px] text-gray-400 font-mono">PNG</span>
+                <span className="text-[10px] text-gray-400 group-hover:text-white font-mono transition-colors">PNG</span>
               </button>
 
               <button
@@ -194,12 +194,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
                   exportAll('svg');
                   setIsMainMenuOpen(false);
                 }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+                className="group w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
               >
                 <span className="flex items-center gap-2.5">
                   <Download size={14} /> Export SVG
                 </span>
-                <span className="text-[10px] text-gray-400 font-mono">SVG</span>
+                <span className="text-[10px] text-gray-400 group-hover:text-white font-mono transition-colors">SVG</span>
               </button>
 
               <button
@@ -207,12 +207,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
                   exportAll('json');
                   setIsMainMenuOpen(false);
                 }}
-                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+                className="group w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
               >
                 <span className="flex items-center gap-2.5">
                   <FileJson size={14} /> Export Project File
                 </span>
-                <span className="text-[10px] text-gray-400 font-mono">JSON</span>
+                <span className="text-[10px] text-gray-400 group-hover:text-white font-mono transition-colors">JSON</span>
               </button>
 
               <div className="h-[1px] bg-[#e2e8f0] my-1" />
