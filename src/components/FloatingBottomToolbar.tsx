@@ -579,7 +579,7 @@ export const FloatingBottomToolbar: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <Triangle size={14} />
-              <span className="font-medium">Polygon / Triangle</span>
+              <span className="font-medium">Triangle</span>
             </div>
             <span className={MENU_META_CLASS}>—</span>
           </button>

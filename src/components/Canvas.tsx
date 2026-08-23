@@ -97,7 +97,11 @@ function resizeRect(
   return { x, y, width, height };
 }
 
-export const Canvas: React.FC = () => {
+interface CanvasProps {
+  hideFloatingToolbar?: boolean;
+}
+
+export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) => {
   const {
     elements,
     selectedIds,
@@ -1226,8 +1230,8 @@ export const Canvas: React.FC = () => {
         )}
       </div>
 
-      {/* Floating Centered Bottom Pill Toolbar */}
-      <FloatingBottomToolbar />
+      {/* Side drawers own the narrow viewport and should not compete with the editing toolbar. */}
+      {!hideFloatingToolbar && <FloatingBottomToolbar />}
     </div>
   );
 };

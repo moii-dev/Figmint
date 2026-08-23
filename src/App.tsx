@@ -12,15 +12,25 @@ const AppContent: React.FC = () => {
   const { viewMode, isLeftSidebarOpen, setIsLeftSidebarOpen, zoomToFit } = useCanvas();
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [isNarrowViewport, setIsNarrowViewport] = useState(() =>
+    window.matchMedia('(max-width: 1279px)').matches
+  );
 
   useEffect(() => {
-    if (viewMode === 'editor' && window.matchMedia('(max-width: 1279px)').matches) {
+    const mediaQuery = window.matchMedia('(max-width: 1279px)');
+    const handleViewportChange = (event: MediaQueryListEvent) => setIsNarrowViewport(event.matches);
+    mediaQuery.addEventListener('change', handleViewportChange);
+    return () => mediaQuery.removeEventListener('change', handleViewportChange);
+  }, []);
+
+  useEffect(() => {
+    if (viewMode === 'editor' && isNarrowViewport) {
       setIsLeftSidebarOpen(false);
       setIsRightSidebarOpen(false);
       const timer = window.setTimeout(zoomToFit, 80);
       return () => window.clearTimeout(timer);
     }
-  }, [setIsLeftSidebarOpen, viewMode, zoomToFit]);
+  }, [isNarrowViewport, setIsLeftSidebarOpen, viewMode, zoomToFit]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -51,7 +61,9 @@ const AppContent: React.FC = () => {
       {/* Main Workspace: Left Layers Sidebar | Center Infinite Canvas | Right Inspector */}
       <main className="flex-1 flex overflow-hidden relative">
         <LeftSidebar />
-        <Canvas />
+        <Canvas
+          hideFloatingToolbar={isNarrowViewport && (isLeftSidebarOpen || isRightSidebarOpen)}
+        />
         <RightSidebar
           isOpen={isRightSidebarOpen}
           onClose={() => setIsRightSidebarOpen(false)}

@@ -34,9 +34,14 @@ import {
   getTopLevelSelectionIds,
   worldToLocalPosition,
 } from '../utils/hierarchy';
-
-const STORAGE_KEY = 'figma_clone_projects_v3';
-const ACTIVE_PROJ_KEY = 'figma_clone_active_proj_id_v3';
+import {
+  loadProjectsFromIndexedDb,
+  persistProjects,
+  readActiveProjectId,
+  readProjectsFromLocalStorage,
+  mergeLatestProjectState,
+  writeLocalStorageFallback,
+} from '../utils/projectStorage';
 const IMPORTABLE_TYPES = new Set([
   'frame',
   'rectangle',
@@ -58,6 +63,8 @@ interface ClipboardPayload {
   elements: CanvasElement[];
   topLevelIds: string[];
 }
+
+export type SaveStatus = 'loading' | 'saving' | 'saved' | 'error';
 
 function createElementId(type: CanvasElement['type']): string {
   return `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -233,6 +240,9 @@ interface CanvasContextType {
   renameProject: (projectId: string, newTitle: string) => void;
   deleteProject: (projectId: string) => void;
   setDocumentName: (title: string) => void;
+  saveStatus: SaveStatus;
+  saveError: string | null;
+  saveWarning: string | null;
 
   // Editor State
   elements: CanvasElement[];
@@ -319,27 +329,13 @@ interface CanvasContextType {
 const CanvasContext = createContext<CanvasContextType | null>(null);
 
 export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Load Projects from LocalStorage or fall back to Initial Projects
-  const [projects, setProjects] = useState<FigmaProject[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.warn('Could not read projects from localStorage', e);
-    }
-    return INITIAL_PROJECTS;
-  });
+  const [projects, setProjects] = useState<FigmaProject[]>(() =>
+    readProjectsFromLocalStorage(INITIAL_PROJECTS)
+  );
 
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => {
-    try {
-      const savedId = localStorage.getItem(ACTIVE_PROJ_KEY);
-      if (savedId && projects.some((project) => project.id === savedId)) return savedId;
-    } catch (e) {}
-    return projects[0]?.id || null;
-  });
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() =>
+    readActiveProjectId(projects)
+  );
 
   const [viewMode, setViewMode] = useState<'dashboard' | 'editor'>('editor');
 
@@ -362,9 +358,14 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(true);
   const [activeLeftTab, setActiveLeftTab] = useState<'layers' | 'assets' | 'variables'>('layers');
   const [collapsedFrames, setCollapsedFrames] = useState<Record<string, boolean>>({});
+  const [storageReady, setStorageReady] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('loading');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const viewportSizeRef = useRef({ width: 900, height: 700 });
   const persistenceRef = useRef({ projects, currentProjectId, elements, zoom, pan });
   const clipboardRef = useRef<ClipboardPayload | null>(null);
+  const saveRequestRef = useRef(0);
   persistenceRef.current = { projects, currentProjectId, elements, zoom, pan };
 
   // History stack
@@ -372,42 +373,96 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const historyIndexRef = useRef<number>(0);
   const [, setHistoryTick] = useState(0);
 
-  // Sync projects to localStorage on change
+  // IndexedDB is the primary store. Existing localStorage data is used as a synchronous
+  // first render and migrated without changing the project data format.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-      if (currentProjectId) {
-        localStorage.setItem(ACTIVE_PROJ_KEY, currentProjectId);
+    let cancelled = false;
+
+    const hydrateProjects = async () => {
+      try {
+        const storedProjects = await loadProjectsFromIndexedDb();
+        if (cancelled) return;
+
+        if (storedProjects?.length) {
+          const storedProjectId = readActiveProjectId(storedProjects);
+          const targetProject =
+            storedProjects.find((project) => project.id === storedProjectId) || storedProjects[0];
+
+          setProjects(storedProjects);
+          setCurrentProjectId(targetProject.id);
+          setElements(targetProject.elements);
+          setZoomState(targetProject.zoom || 0.85);
+          setPanState(targetProject.pan || { x: 260, y: 40 });
+          setSelectedIds(targetProject.elements.length > 0 ? [targetProject.elements[0].id] : []);
+          historyRef.current = [targetProject.elements];
+          historyIndexRef.current = 0;
+        }
+
+        setSaveWarning(null);
+        setSaveStatus(storedProjects?.length ? 'saved' : 'saving');
+      } catch (error) {
+        if (cancelled) return;
+        setSaveWarning(
+          `IndexedDB is unavailable; Figmint will use limited browser storage. ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        setSaveStatus('saved');
+      } finally {
+        if (!cancelled) setStorageReady(true);
       }
-    } catch (e) {
-      console.warn('Failed to save projects to localStorage', e);
-    }
-  }, [projects, currentProjectId]);
+    };
+
+    void hydrateProjects();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+
+    const requestId = ++saveRequestRef.current;
+    setSaveStatus('saving');
+    setSaveError(null);
+
+    const timeout = window.setTimeout(() => {
+      void persistProjects(projects, currentProjectId)
+        .then((result) => {
+          if (requestId !== saveRequestRef.current) return;
+          setSaveWarning(result.warning || null);
+          setSaveStatus('saved');
+        })
+        .catch((error) => {
+          if (requestId !== saveRequestRef.current) return;
+          const message = error instanceof Error ? error.message : String(error);
+          console.error('Failed to save Figmint projects', error);
+          setSaveError(message);
+          setSaveStatus('error');
+        });
+    }, 120);
+
+    return () => window.clearTimeout(timeout);
+  }, [currentProjectId, projects, storageReady]);
 
   const persistLatestEditorState = useCallback(() => {
     const latest = persistenceRef.current;
-    const persistedProjects = latest.currentProjectId
-      ? latest.projects.map((project) =>
-          project.id === latest.currentProjectId
-            ? {
-                ...project,
-                elements: latest.elements,
-                zoom: latest.zoom,
-                pan: latest.pan,
-                updatedAt: Date.now(),
-              }
-            : project
-        )
-      : latest.projects;
+    const persistedProjects = mergeLatestProjectState(
+      latest.projects,
+      latest.currentProjectId,
+      latest.elements,
+      latest.zoom,
+      latest.pan
+    );
 
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedProjects));
-      if (latest.currentProjectId) {
-        localStorage.setItem(ACTIVE_PROJ_KEY, latest.currentProjectId);
-      }
-    } catch (e) {
-      console.warn('Failed to save the latest editor state to localStorage', e);
+      writeLocalStorageFallback(persistedProjects, latest.currentProjectId);
+    } catch (error) {
+      console.warn('Failed to update the emergency localStorage fallback', error);
     }
+    void persistProjects(persistedProjects, latest.currentProjectId).catch((error) => {
+      console.warn('Failed to persist the latest editor state during page exit', error);
+    });
   }, []);
 
   useEffect(() => {
@@ -428,6 +483,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Debounced auto-save current elements and canvas viewport to current project
   useEffect(() => {
     if (!currentProjectId) return;
+    if (storageReady) setSaveStatus('saving');
     const timeout = setTimeout(() => {
       setProjects((prev) =>
         prev.map((proj) => {
@@ -446,7 +502,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 400);
 
     return () => clearTimeout(timeout);
-  }, [elements, zoom, pan, currentProjectId]);
+  }, [elements, zoom, pan, currentProjectId, storageReady]);
 
   const pushHistory = useCallback((newElements: CanvasElement[]) => {
     const snapshot = JSON.parse(JSON.stringify(newElements)) as CanvasElement[];
@@ -463,13 +519,19 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Project Actions
   const openDashboard = useCallback(() => {
+    setProjects((previousProjects) =>
+      mergeLatestProjectState(previousProjects, currentProjectId, elements, zoom, pan)
+    );
     setViewMode('dashboard');
     setSelectedIds([]);
-  }, []);
+  }, [currentProjectId, elements, pan, zoom]);
 
   const openProject = useCallback((projectId: string) => {
     const target = projects.find((p) => p.id === projectId);
     if (!target) return;
+    setProjects((previousProjects) =>
+      mergeLatestProjectState(previousProjects, currentProjectId, elements, zoom, pan)
+    );
     setCurrentProjectId(projectId);
     setElements(target.elements);
     setZoomState(target.zoom || 0.85);
@@ -478,7 +540,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     historyRef.current = [target.elements];
     historyIndexRef.current = 0;
     setViewMode('editor');
-  }, [projects]);
+  }, [currentProjectId, elements, pan, projects, zoom]);
 
   const createNewProject = useCallback(
     (title = 'Untitled Design', template: 'blank' | 'mobile' | 'desktop' = 'blank') => {
@@ -551,7 +613,10 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         pan: { x: 260, y: 40 },
       };
 
-      setProjects((prev) => [newProj, ...prev]);
+      setProjects((previousProjects) => [
+        newProj,
+        ...mergeLatestProjectState(previousProjects, currentProjectId, elements, zoom, pan),
+      ]);
       setCurrentProjectId(newId);
       setElements(initialEls);
       setZoomState(0.85);
@@ -561,7 +626,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       historyIndexRef.current = 0;
       setViewMode('editor');
     },
-    []
+    [currentProjectId, elements, pan, zoom]
   );
 
   const duplicateProject = useCallback(
@@ -1474,6 +1539,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         renameProject,
         deleteProject,
         setDocumentName,
+        saveStatus,
+        saveError,
+        saveWarning,
 
         elements,
         selectedIds,

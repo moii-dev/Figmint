@@ -12,6 +12,8 @@ import {
   PanelRight,
   ArrowLeft,
   CheckCircle2,
+  LoaderCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 
@@ -36,6 +38,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
     exportAll,
     importJson,
     resetCanvas,
+    saveStatus,
+    saveError,
+    saveWarning,
   } = useCanvas();
 
   const [isEditingName, setIsEditingName] = useState(false);
@@ -271,11 +276,45 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
           )}
         </div>
 
-        {/* Auto-saved badge */}
-        <div className="hidden sm:flex items-center gap-1 text-[10px] text-gray-400 font-medium ml-1">
-          <CheckCircle2 size={11} className="text-emerald-500" />
-          <span>Saved</span>
-        </div>
+        {/* Honest auto-save state with a recovery action when browser storage fails. */}
+        {saveStatus === 'error' ? (
+          <button
+            type="button"
+            onClick={() => exportAll('json')}
+            title={`${saveError || 'The project could not be saved.'} Export a backup copy.`}
+            aria-label="Save failed. Export a backup copy"
+            className="ml-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <AlertTriangle size={12} />
+            <span className="hidden lg:inline">Save failed · Export backup</span>
+          </button>
+        ) : (
+          <div
+            role="status"
+            aria-live="polite"
+            title={saveWarning || undefined}
+            className={`ml-1 flex items-center gap-1 text-[10px] font-medium ${
+              saveWarning ? 'text-amber-600' : 'text-gray-400'
+            }`}
+          >
+            {saveStatus === 'loading' || saveStatus === 'saving' ? (
+              <LoaderCircle size={11} className="animate-spin text-gray-400" />
+            ) : saveWarning ? (
+              <AlertTriangle size={11} />
+            ) : (
+              <CheckCircle2 size={11} className="text-emerald-500" />
+            )}
+            <span className="hidden sm:inline">
+              {saveStatus === 'loading'
+                ? 'Loading…'
+                : saveStatus === 'saving'
+                  ? 'Saving…'
+                  : saveWarning
+                    ? 'Saved locally'
+                    : 'Saved'}
+            </span>
+          </div>
+        )}
 
         {/* Sidebar Toggle Icon Button */}
         <button

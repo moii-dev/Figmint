@@ -224,7 +224,9 @@ export const Dashboard: React.FC = () => {
             </div>
             <div>
               <div className="text-xs font-bold text-gray-900 leading-tight">My Workspace</div>
-              <div className="text-[11px] text-gray-500">Free Team • 3 files</div>
+              <div className="text-[11px] text-gray-500">
+                Local Workspace • {projects.length} {projects.length === 1 ? 'file' : 'files'}
+              </div>
             </div>
           </div>
         </div>
@@ -383,9 +385,10 @@ export const Dashboard: React.FC = () => {
           {viewLayout === 'grid' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
               {/* Card 0: "+ New Blank Canvas" */}
-              <div
+              <button
+                type="button"
                 onClick={() => createNewProject('Untitled Design', 'blank')}
-                className="group h-56 rounded-2xl border-2 border-dashed border-[#cbd5e1] hover:border-[#0d99ff] bg-white hover:bg-[#f0f9ff]/40 flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-all shadow-xs hover:shadow-md"
+                className="group h-56 rounded-2xl border-2 border-dashed border-[#cbd5e1] hover:border-[#0d99ff] focus-visible:border-[#0d99ff] focus-visible:ring-2 focus-visible:ring-[#0d99ff]/25 bg-white hover:bg-[#f0f9ff]/40 flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-all shadow-xs hover:shadow-md outline-none"
               >
                 <div className="w-12 h-12 rounded-2xl bg-[#e5f2ff] text-[#0d99ff] group-hover:scale-110 flex items-center justify-center mb-3 transition-transform">
                   <Plus size={22} />
@@ -396,7 +399,7 @@ export const Dashboard: React.FC = () => {
                 <div className="text-[11px] text-gray-400 mt-1">
                   Start with a clean infinite vector canvas
                 </div>
-              </div>
+              </button>
 
               {/* Project Cards */}
               {filteredProjects.map((project) => {
@@ -406,11 +409,15 @@ export const Dashboard: React.FC = () => {
                 return (
                   <div
                     key={project.id}
-                    className="group relative bg-white rounded-2xl border border-[#e2e8f0] hover:border-[#0d99ff] shadow-xs hover:shadow-lg transition-all overflow-hidden flex flex-col h-56 cursor-pointer"
-                    onClick={() => openProject(project.id)}
+                    className="group relative bg-white rounded-2xl border border-[#e2e8f0] hover:border-[#0d99ff] shadow-xs hover:shadow-lg transition-all overflow-hidden flex flex-col h-56"
                   >
                     {/* Thumbnail Container */}
-                    <div className="flex-1 relative bg-[#f1f5f9] border-b border-[#e2e8f0] overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => openProject(project.id)}
+                      aria-label={`Open ${project.title}`}
+                      className="flex-1 w-full relative bg-[#f1f5f9] border-b border-[#e2e8f0] overflow-hidden text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0d99ff]"
+                    >
                       {renderThumbnail(project.elements)}
 
                       {/* Hover Open Overlay */}
@@ -419,7 +426,7 @@ export const Dashboard: React.FC = () => {
                           Open File <ChevronRight size={13} />
                         </span>
                       </div>
-                    </div>
+                    </button>
 
                     {/* Card Footer: Title & Actions */}
                     <div className="p-3 bg-white flex items-center justify-between">
@@ -445,16 +452,13 @@ export const Dashboard: React.FC = () => {
                             className="bg-white text-xs font-semibold border border-[#0d99ff] rounded px-1.5 py-0.5 outline-none w-full"
                           />
                         ) : (
-                          <div
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              setEditingId(project.id);
-                              setEditingTitle(project.title);
-                            }}
-                            className="text-xs font-semibold text-gray-900 truncate group-hover:text-[#0d99ff] transition-colors"
+                          <button
+                            type="button"
+                            onClick={() => openProject(project.id)}
+                            className="block w-full truncate text-left text-xs font-semibold text-gray-900 group-hover:text-[#0d99ff] focus-visible:text-[#0d99ff] outline-none transition-colors"
                           >
                             {project.title}
-                          </div>
+                          </button>
                         )}
                         <div className="text-[10px] text-gray-400 flex items-center gap-1 mt-0.5 font-medium">
                           <span>{formatRelativeTime(project.updatedAt)}</span>
@@ -532,12 +536,16 @@ export const Dashboard: React.FC = () => {
             /* List View Layout */
             <div className="bg-white rounded-2xl border border-[#e2e8f0] divide-y divide-[#e2e8f0] overflow-hidden shadow-xs">
               {filteredProjects.map((project) => (
-                <div
+                <article
                   key={project.id}
-                  onClick={() => openProject(project.id)}
-                  className="p-3.5 flex items-center justify-between hover:bg-[#f8fafc] transition-colors cursor-pointer"
+                  className="p-3.5 flex items-center justify-between hover:bg-[#f8fafc] transition-colors"
                 >
-                  <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openProject(project.id)}
+                    aria-label={`Open ${project.title}`}
+                    className="flex flex-1 items-center gap-3 text-left rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#0d99ff]/30"
+                  >
                     <div className="w-10 h-10 rounded-lg bg-[#f1f5f9] border border-[#e2e8f0] flex items-center justify-center text-gray-500">
                       <Layers size={18} />
                     </div>
@@ -547,7 +555,7 @@ export const Dashboard: React.FC = () => {
                         {project.elements.length} layers • Edited {formatRelativeTime(project.updatedAt)}
                       </div>
                     </div>
-                  </div>
+                  </button>
 
                   <div className="flex items-center gap-2">
                     <button
@@ -571,7 +579,7 @@ export const Dashboard: React.FC = () => {
                       <Trash2 size={14} />
                     </button>
                   </div>
-                </div>
+                </article>
               ))}
             </div>
           )}
