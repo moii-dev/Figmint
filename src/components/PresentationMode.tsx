@@ -16,9 +16,10 @@ import {
   getVisibleGradients,
 } from '../utils/gradient';
 import { getCssStrokeOverlayStyle } from '../utils/stroke';
+import { resolveElementTokens } from '../utils/tokens';
 
 export const PresentationMode: React.FC = () => {
-  const { elements, presentationMode, setPresentationMode } = useCanvas();
+  const { elements, presentationMode, setPresentationMode, tokens } = useCanvas();
 
   // Find all frames
   const frames = elements.filter((el) => el.type === 'frame');
@@ -64,6 +65,8 @@ export const PresentationMode: React.FC = () => {
     : [];
 
   const renderChildElement = (el: CanvasElement) => {
+    const rawElement = el;
+    el = resolveElementTokens(el, tokens);
     // Children already store coordinates local to their frame.
     const relX = el.x;
     const relY = el.y;
@@ -93,7 +96,7 @@ export const PresentationMode: React.FC = () => {
           opacity: el.opacity,
         }}
       >
-        {(el.type === 'rectangle' || el.type === 'frame') && (
+        {(['rectangle', 'frame', 'component', 'instance'].includes(el.type)) && (
           <div
             className="relative w-full h-full"
             style={{
@@ -105,6 +108,10 @@ export const PresentationMode: React.FC = () => {
             {el.strokeWidth > 0 && <div style={getCssStrokeOverlayStyle(el, strokeStyle)} />}
           </div>
         )}
+
+        {(['frame', 'component', 'instance'].includes(el.type)) && elements
+          .filter((child) => child.parentId === rawElement.id && child.visible)
+          .map(renderChildElement)}
 
         {el.type === 'ellipse' && (
           <div

@@ -21,6 +21,10 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  Component,
+  LayoutGrid,
+  LocateFixed,
+  RotateCcw,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement, ShapeType } from '../types/figma';
@@ -32,6 +36,8 @@ import {
   removeGradientColor,
 } from '../utils/gradient';
 import { normalizeHexColor } from '../utils/color';
+import { getInstanceRoot } from '../utils/components';
+import { getCompatibleTokens } from '../utils/tokens';
 
 const transparencyGridStyle = {
   backgroundColor: '#ffffff',
@@ -54,6 +60,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
     updateElement,
     alignSelected,
     exportSelected,
+    tokens,
+    createComponentFromSelection,
+    createInstance,
+    resetInstance,
+    detachInstance,
+    goToMainComponent,
+    wrapSelectionInAutoLayout,
+    bindToken,
   } = useCanvas();
 
   const [activeColorPicker, setActiveColorPicker] = useState<'fill' | 'gradient' | 'stroke' | 'shadow' | null>(null);
@@ -65,6 +79,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
 
   const selectedElements = elements.filter((el) => selectedIds.includes(el.id));
   const primaryElement = selectedElements[0] as CanvasElement | undefined;
+  const instanceRoot = primaryElement ? getInstanceRoot(primaryElement, elements) : null;
+  const parentElement = primaryElement?.parentId
+    ? elements.find((element) => element.id === primaryElement.parentId)
+    : undefined;
 
   useEffect(() => {
     setSelectedGradientStop(0);
@@ -106,7 +124,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
     );
   }
 
-  const isShape = ['rectangle', 'frame'].includes(primaryElement.type);
+  const isShape = ['rectangle', 'frame', 'component', 'instance'].includes(primaryElement.type);
   const hasVisibleStroke = primaryElement.strokeWidth > 0 && primaryElement.strokeOpacity > 0;
 
   const handleUpdate = (changes: Partial<CanvasElement>) => {
@@ -191,6 +209,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
         return 'Image';
       case 'video':
         return 'Video';
+      case 'component':
+        return 'Main component';
+      case 'instance':
+        return 'Component instance';
       default:
         return 'Layer';
     }
@@ -215,8 +237,105 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
       </div>
 
       <div className="p-3 space-y-4 text-xs">
+        {/* Component controls */}
+        {(primaryElement.type === 'frame' || primaryElement.type === 'component' || instanceRoot) && (
+          <section className="space-y-2 rounded-xl border border-[#e5d8f5] bg-[#fbf8ff] p-2.5">
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-[#6f35b5]">
+              <Component size={13} /> Component
+            </div>
+
+            {primaryElement.type === 'frame' && !instanceRoot && (
+              <button
+                onClick={createComponentFromSelection}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#9747ff] px-2 py-1.5 font-semibold text-white hover:bg-[#7f35da]"
+              >
+                <Component size={13} /> Create component
+              </button>
+            )}
+
+            {primaryElement.type === 'component' && (
+              <button
+                onClick={() => createInstance(primaryElement.id)}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#9747ff] px-2 py-1.5 font-semibold text-white hover:bg-[#7f35da]"
+              >
+                <Plus size={13} /> Create instance
+              </button>
+            )}
+
+            {instanceRoot && (
+              <>
+                <div className="rounded-lg bg-white px-2 py-1.5 text-[10px] text-[#735989] ring-1 ring-inset ring-[#eadff5]">
+                  {primaryElement.id === instanceRoot.id ? 'Linked instance' : `Override inside ${instanceRoot.name}`}
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  <button onClick={() => goToMainComponent(instanceRoot.id)} title="Go to main component" className="flex flex-col items-center gap-1 rounded-lg bg-white px-1 py-1.5 text-[9px] font-semibold text-[#6f35b5] ring-1 ring-inset ring-[#e5d8f5] hover:bg-[#f5edff]"><LocateFixed size={13} />Main</button>
+                  <button onClick={() => resetInstance(instanceRoot.id)} title="Reset overrides" className="flex flex-col items-center gap-1 rounded-lg bg-white px-1 py-1.5 text-[9px] font-semibold text-[#6f35b5] ring-1 ring-inset ring-[#e5d8f5] hover:bg-[#f5edff]"><RotateCcw size={13} />Reset</button>
+                  <button onClick={() => detachInstance(instanceRoot.id)} title="Detach instance" className="flex flex-col items-center gap-1 rounded-lg bg-white px-1 py-1.5 text-[9px] font-semibold text-[#6f35b5] ring-1 ring-inset ring-[#e5d8f5] hover:bg-[#f5edff]"><Unlink size={13} />Detach</button>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {/* Auto Layout */}
+        {(['frame', 'component'].includes(primaryElement.type) || (parentElement?.layoutMode && parentElement.layoutMode !== 'none')) && (
+          <section className="space-y-2.5 border-b border-[#e6e6e6] pb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-700">
+                <LayoutGrid size={13} /> Auto layout
+              </div>
+              {!instanceRoot && ['frame', 'component'].includes(primaryElement.type) && (!primaryElement.layoutMode || primaryElement.layoutMode === 'none') && (
+                <button onClick={wrapSelectionInAutoLayout} className="rounded-md px-1.5 py-1 text-[10px] font-semibold text-[#0d99ff] hover:bg-[#e5f2ff]">+ Add</button>
+              )}
+            </div>
+
+            {!instanceRoot && ['frame', 'component'].includes(primaryElement.type) && primaryElement.layoutMode && primaryElement.layoutMode !== 'none' && (
+              <>
+                <div className="grid grid-cols-2 gap-1 rounded-lg bg-[#f1f5f9] p-1">
+                  {(['horizontal', 'vertical'] as const).map((mode) => (
+                    <button key={mode} onClick={() => handleUpdate({ layoutMode: mode })} className={`rounded-md py-1 text-[10px] font-semibold capitalize ${primaryElement.layoutMode === mode ? 'bg-white text-[#0d99ff] shadow-xs' : 'text-gray-500 hover:text-gray-800'}`}>{mode}</button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  <label className="rounded-lg bg-[#f8fafc] px-2 py-1 ring-1 ring-inset ring-[#e2e8f0]">
+                    <span className="block text-[8px] font-bold uppercase tracking-wider text-gray-400">Gap</span>
+                    <input type="number" min="0" value={primaryElement.layoutGap ?? 8} onChange={(event) => handleUpdate({ layoutGap: Math.max(0, Number(event.target.value)) })} className="w-full bg-transparent font-mono text-[11px] outline-none" aria-label="Auto layout gap" />
+                  </label>
+                  <div className="rounded-lg bg-[#f8fafc] p-1.5 ring-1 ring-inset ring-[#e2e8f0]">
+                    <span className="mb-1 block text-[8px] font-bold uppercase tracking-wider text-gray-400">Padding · T R B L</span>
+                    <div className="grid grid-cols-4 gap-1">
+                      {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
+                        <input key={side} type="number" min="0" value={primaryElement.layoutPadding?.[side] ?? 12} onChange={(event) => handleUpdate({ layoutPadding: { top: primaryElement.layoutPadding?.top ?? 12, right: primaryElement.layoutPadding?.right ?? 12, bottom: primaryElement.layoutPadding?.bottom ?? 12, left: primaryElement.layoutPadding?.left ?? 12, [side]: Math.max(0, Number(event.target.value)) } })} className="min-w-0 rounded bg-white px-1 py-1 text-center font-mono text-[10px] outline-none ring-1 ring-inset ring-[#e2e8f0] focus:ring-[#0d99ff]" aria-label={`Auto layout ${side} padding`} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="rounded-lg bg-[#f8fafc] px-2 py-1 ring-1 ring-inset ring-[#e2e8f0]"><span className="block text-[8px] font-bold uppercase text-gray-400">Main axis</span><select value={primaryElement.layoutPrimaryAlign || 'start'} onChange={(event) => handleUpdate({ layoutPrimaryAlign: event.target.value as CanvasElement['layoutPrimaryAlign'] })} className="w-full bg-transparent text-[10px] font-semibold outline-none"><option value="start">Start</option><option value="center">Center</option><option value="end">End</option><option value="space-between">Space between</option></select></label>
+                  <label className="rounded-lg bg-[#f8fafc] px-2 py-1 ring-1 ring-inset ring-[#e2e8f0]"><span className="block text-[8px] font-bold uppercase text-gray-400">Cross axis</span><select value={primaryElement.layoutCounterAlign || 'center'} onChange={(event) => handleUpdate({ layoutCounterAlign: event.target.value as CanvasElement['layoutCounterAlign'] })} className="w-full bg-transparent text-[10px] font-semibold outline-none"><option value="start">Start</option><option value="center">Center</option><option value="end">End</option><option value="stretch">Stretch</option></select></label>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="rounded-lg bg-[#f8fafc] px-2 py-1 ring-1 ring-inset ring-[#e2e8f0]"><span className="block text-[8px] font-bold uppercase text-gray-400">Width</span><select value={primaryElement.layoutSizingHorizontal || 'fixed'} onChange={(event) => handleUpdate({ layoutSizingHorizontal: event.target.value as CanvasElement['layoutSizingHorizontal'] })} className="w-full bg-transparent text-[10px] font-semibold outline-none"><option value="fixed">Fixed</option><option value="hug">Hug contents</option></select></label>
+                  <label className="rounded-lg bg-[#f8fafc] px-2 py-1 ring-1 ring-inset ring-[#e2e8f0]"><span className="block text-[8px] font-bold uppercase text-gray-400">Height</span><select value={primaryElement.layoutSizingVertical || 'fixed'} onChange={(event) => handleUpdate({ layoutSizingVertical: event.target.value as CanvasElement['layoutSizingVertical'] })} className="w-full bg-transparent text-[10px] font-semibold outline-none"><option value="fixed">Fixed</option><option value="hug">Hug contents</option></select></label>
+                </div>
+              </>
+            )}
+
+            {!instanceRoot && parentElement?.layoutMode && parentElement.layoutMode !== 'none' && (
+              <div className="grid grid-cols-3 gap-2 rounded-xl border border-[#e2e8f0] bg-[#fafbfc] p-2">
+                <label><span className="block text-[8px] font-bold uppercase text-gray-400">Position</span><select value={primaryElement.layoutPositioning || 'auto'} onChange={(event) => handleUpdate({ layoutPositioning: event.target.value as CanvasElement['layoutPositioning'] })} className="w-full bg-transparent text-[10px] font-semibold outline-none"><option value="auto">Auto</option><option value="absolute">Absolute</option></select></label>
+                <label><span className="block text-[8px] font-bold uppercase text-gray-400">Width</span><select value={primaryElement.layoutSizingHorizontal || 'fixed'} onChange={(event) => handleUpdate({ layoutSizingHorizontal: event.target.value as CanvasElement['layoutSizingHorizontal'] })} className="w-full bg-transparent text-[10px] font-semibold outline-none"><option value="fixed">Fixed</option><option value="fill">Fill</option><option value="hug">Hug</option></select></label>
+                <label><span className="block text-[8px] font-bold uppercase text-gray-400">Height</span><select value={primaryElement.layoutSizingVertical || 'fixed'} onChange={(event) => handleUpdate({ layoutSizingVertical: event.target.value as CanvasElement['layoutSizingVertical'] })} className="w-full bg-transparent text-[10px] font-semibold outline-none"><option value="fixed">Fixed</option><option value="fill">Fill</option><option value="hug">Hug</option></select></label>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* 2. Position Section */}
-        <div className="space-y-2.5">
+        <fieldset
+          disabled={Boolean(instanceRoot && instanceRoot.id !== primaryElement.id)}
+          className={`space-y-2.5 ${instanceRoot && instanceRoot.id !== primaryElement.id ? 'opacity-45' : ''}`}
+        >
           <div className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">
             Position
           </div>
@@ -323,12 +442,15 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
               </button>
             </div>
           </div>
-        </div>
+        </fieldset>
 
         <div className="h-[1px] bg-[#e6e6e6]" />
 
         {/* 3. Layout Section */}
-        <div className="space-y-2.5">
+        <fieldset
+          disabled={Boolean(instanceRoot && instanceRoot.id !== primaryElement.id)}
+          className={`space-y-2.5 ${instanceRoot && instanceRoot.id !== primaryElement.id ? 'opacity-45' : ''}`}
+        >
           <div className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">
             Layout
           </div>
@@ -389,7 +511,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
           </div>
 
           {/* Frame-specific: Clip content checkbox */}
-          {primaryElement.type === 'frame' && (
+          {['frame', 'component'].includes(primaryElement.type) && !instanceRoot && (
             <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer pt-1">
               <input
                 type="checkbox"
@@ -400,7 +522,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
               <span className="font-medium">Clip content</span>
             </label>
           )}
-        </div>
+        </fieldset>
 
         <div className="h-[1px] bg-[#e6e6e6]" />
 
@@ -452,6 +574,37 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
         </div>
 
         <div className="h-[1px] bg-[#e6e6e6]" />
+
+        {!instanceRoot && (
+          <section className="space-y-2 border-b border-[#e6e6e6] pb-4">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-700">
+              <Link size={13} /> Token bindings
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { property: 'fill' as const, label: 'Fill', visible: true },
+                { property: 'stroke' as const, label: 'Stroke', visible: true },
+                { property: 'cornerRadius' as const, label: 'Radius', visible: isShape },
+                { property: 'layoutGap' as const, label: 'Gap', visible: Boolean(primaryElement.layoutMode && primaryElement.layoutMode !== 'none') },
+              ]).filter((item) => item.visible).map((item) => (
+                <label key={item.property} className="rounded-lg bg-[#f8fafc] px-2 py-1 ring-1 ring-inset ring-[#e2e8f0] focus-within:ring-[#0d99ff]">
+                  <span className="block text-[8px] font-bold uppercase tracking-wider text-gray-400">{item.label}</span>
+                  <select
+                    value={primaryElement.tokenBindings?.[item.property] || ''}
+                    onChange={(event) => bindToken(primaryElement.id, item.property, event.target.value || null)}
+                    className="w-full bg-transparent text-[10px] font-semibold text-gray-700 outline-none"
+                    aria-label={`${item.label} token`}
+                  >
+                    <option value="">Unbound</option>
+                    {getCompatibleTokens(item.property, tokens).map((token) => (
+                      <option key={token.id} value={token.id}>{token.name}</option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* 5. Fill Section */}
         <div className="relative space-y-2">

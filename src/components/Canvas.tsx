@@ -28,6 +28,10 @@ import {
   getVisibleGradients,
 } from '../utils/gradient';
 import { getCssStrokeOverlayStyle, getEllipseStrokeGeometry } from '../utils/stroke';
+import { resolveElementTokens } from '../utils/tokens';
+
+const CREATION_TOOLS = ['frame', 'rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'text', 'line', 'arrow'];
+const CONTAINER_TYPES: CanvasElement['type'][] = ['frame', 'component', 'instance'];
 
 interface DragElementSnapshot {
   id: string;
@@ -124,6 +128,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
     createShapeAt,
     importMediaFiles,
     finishInteraction,
+    tokens,
   } = useCanvas();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -290,17 +295,15 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
     if (e.button !== 0) return;
     const worldPt = screenToWorld(e.clientX, e.clientY);
 
-    if (['frame', 'rectangle', 'ellipse', 'triangle', 'text', 'line'].includes(activeTool)) {
+    if (CREATION_TOOLS.includes(activeTool)) {
       e.preventDefault();
       let parentFrameId: string | null = null;
       let localPt = { ...worldPt };
 
-      if (activeTool !== 'frame') {
-        const targetFrame = findFrameAtPoint(worldPt, elements);
-        if (targetFrame) {
-          parentFrameId = targetFrame.id;
-          localPt = worldToLocalPosition(worldPt, parentFrameId, elements);
-        }
+      const targetFrame = findFrameAtPoint(worldPt, elements);
+      if (targetFrame) {
+        parentFrameId = targetFrame.id;
+        localPt = worldToLocalPosition(worldPt, parentFrameId, elements);
       }
 
       if (activeTool === 'text') {
@@ -347,7 +350,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
   };
 
   const handleElementPointerDown = (e: React.PointerEvent, element: CanvasElement) => {
-    if (['frame', 'rectangle', 'ellipse', 'triangle', 'text', 'line'].includes(activeTool)) return;
+    if (CREATION_TOOLS.includes(activeTool)) return;
     if (isSpacePressed || activeTool === 'hand') return;
     if (e.button !== 0) return;
 
@@ -593,6 +596,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
 
   // Render individual canvas shape (rectangle, ellipse, text, etc.)
   const renderShapeContent = (el: CanvasElement) => {
+    el = resolveElementTokens(el, tokens);
     const fillStyle = hexToRgba(el.fill, el.fillOpacity);
     const fillCss = getElementCssFill(el);
     const visibleGradients = getVisibleGradients(el);
@@ -609,7 +613,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
       boxShadowStyle = `${s.x}px ${s.y}px ${s.blur}px ${s.spread}px ${shadowColor}`;
     }
 
-    if (el.type === 'rectangle') {
+    if (el.type === 'rectangle' || CONTAINER_TYPES.includes(el.type)) {
       return (
         <div
           className="relative w-full h-full"
@@ -916,6 +920,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
   // Render a child element nested inside a parent frame container
   const renderNestedElement = (el: CanvasElement, layerIndex: number) => {
     if (!el.visible) return null;
+    const renderedElement = resolveElementTokens(el, tokens);
     const isSelected = selectedIds.includes(el.id);
     const isSingleSelected = selectedIds.length === 1 && isSelected;
     const isEditing = editingTextId === el.id;
@@ -938,15 +943,33 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
         style={{
           left: `${el.x}px`,
           top: `${el.y}px`,
-          width: `${el.width}px`,
-          height: `${el.height}px`,
+          width: `${renderedElement.width}px`,
+          height: `${renderedElement.height}px`,
           transform: `rotate(${el.rotation || 0}deg)`,
           transformOrigin: 'center center',
-          opacity: el.opacity,
+          opacity: renderedElement.opacity,
           zIndex: layerIndex + 1,
         }}
       >
-        {renderShapeContent(el)}
+        {CONTAINER_TYPES.includes(el.type) ? (
+          <div
+            className="absolute inset-0"
+            style={{ overflow: el.clipContent ? 'hidden' : 'visible' }}
+          >
+            {renderShapeContent(renderedElement)}
+            {elements
+              .filter((child) => child.parentId === el.id)
+              .map((child, childIndex) => renderNestedElement(child, childIndex))}
+          </div>
+        ) : renderShapeContent(renderedElement)}
+
+        {(el.type === 'component' || el.type === 'instance') && (
+          <div
+            className={`pointer-events-none absolute inset-0 border ${
+              el.type === 'component' ? 'border-[#9747ff]' : 'border-dashed border-[#9747ff]'
+            }`}
+          />
+        )}
 
         {/* Transform Bounding Box for single selected nested child */}
         {isSingleSelected && !isEditing && (
@@ -965,23 +988,24 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
   // Render a top-level element (Frame or root Canvas shape)
   const renderRootElement = (el: CanvasElement, layerIndex: number) => {
     if (!el.visible) return null;
+    const renderedElement = resolveElementTokens(el, tokens);
 
     const isSelected = selectedIds.includes(el.id);
     const isSingleSelected = selectedIds.length === 1 && isSelected;
     const isEditing = editingTextId === el.id;
 
-    const fillCss = getElementCssFill(el);
+    const fillCss = getElementCssFill(renderedElement);
     const strokeStyle =
-      el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'transparent';
+      renderedElement.strokeWidth > 0 ? hexToRgba(renderedElement.stroke, renderedElement.strokeOpacity) : 'transparent';
     let boxShadowStyle = 'none';
-    if (el.shadow) {
-      const s = el.shadow;
+    if (renderedElement.shadow) {
+      const s = renderedElement.shadow;
       const shadowColor = hexToRgba(s.color, s.opacity);
       boxShadowStyle = `${s.x}px ${s.y}px ${s.blur}px ${s.spread}px ${shadowColor}`;
     }
 
     // 1. Frame Node (Container that holds nested children)
-    if (el.type === 'frame') {
+    if (CONTAINER_TYPES.includes(el.type)) {
       const children = elements.filter((child) => child.parentId === el.id);
 
       return (
@@ -1002,11 +1026,11 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
           style={{
             left: `${el.x}px`,
             top: `${el.y}px`,
-            width: `${el.width}px`,
-            height: `${el.height}px`,
+            width: `${renderedElement.width}px`,
+            height: `${renderedElement.height}px`,
             transform: `rotate(${el.rotation || 0}deg)`,
             transformOrigin: 'center center',
-            opacity: el.opacity,
+            opacity: renderedElement.opacity,
             zIndex: layerIndex + 1,
           }}
         >
@@ -1018,7 +1042,9 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
               selectElement(el.id);
             }}
           >
-            <span className="text-[#0d99ff] font-mono font-bold">#</span>
+            <span className={`font-mono font-bold ${el.type === 'frame' ? 'text-[#0d99ff]' : 'text-[#9747ff]'}`}>
+              {el.type === 'frame' ? '#' : el.type === 'component' ? '◆' : '◇'}
+            </span>
             <span>{el.name}</span>
           </div>
 
@@ -1027,7 +1053,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             className="w-full h-full absolute inset-0 pointer-events-auto"
             style={{
               ...fillCss,
-              borderRadius: el.cornerRadius ? `${el.cornerRadius}px` : '0px',
+              borderRadius: renderedElement.cornerRadius ? `${renderedElement.cornerRadius}px` : '0px',
               boxShadow: boxShadowStyle,
               overflow: el.clipContent ? 'hidden' : 'visible',
             }}
@@ -1036,8 +1062,12 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             {children.map((child, childIndex) => renderNestedElement(child, childIndex))}
           </div>
 
-          {el.strokeWidth > 0 && (
-            <div className="absolute inset-0 z-[2]" style={getCssStrokeOverlayStyle(el, strokeStyle)} />
+          {renderedElement.strokeWidth > 0 && (
+            <div className="absolute inset-0 z-[2]" style={getCssStrokeOverlayStyle(renderedElement, strokeStyle)} />
+          )}
+
+          {(el.type === 'component' || el.type === 'instance') && (
+            <div className={`pointer-events-none absolute inset-0 z-[3] border ${el.type === 'component' ? 'border-[#9747ff]' : 'border-dashed border-[#9747ff]'}`} />
           )}
 
           {/* Transform Bounding Box for single selected Frame */}
@@ -1081,7 +1111,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
           zIndex: layerIndex + 1,
         }}
       >
-        {renderShapeContent(el)}
+        {renderShapeContent(renderedElement)}
 
         {/* Transform Bounding Box for single selected Root Shape */}
         {isSingleSelected && !isEditing && (

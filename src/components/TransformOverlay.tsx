@@ -19,7 +19,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   showRadiusHandles = true,
 }) => {
   const { width, height, cornerRadius, type } = element;
-  const isShapeWithRadius = (type === 'rectangle' || type === 'frame') && width > 40 && height > 40;
+  const isShapeWithRadius = ['rectangle', 'frame', 'component', 'instance'].includes(type) && width > 40 && height > 40;
+  const accentColor = type === 'component' || type === 'instance' ? '#9747ff' : '#0d99ff';
 
   // Calculate inner radius handles position
   const currentRadius = cornerRadius || 0;
@@ -49,24 +50,25 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     >
       {/* Figma Selection Bounding Box Border */}
       <div
-        className="absolute inset-0 border border-[#0d99ff] pointer-events-none z-20"
+        className="absolute inset-0 border pointer-events-none z-20"
         style={{
           borderWidth: `${Math.max(1, 1.5 / zoom)}px`,
+          borderColor: accentColor,
         }}
       />
 
       {/* Top Center Title Tag for Frame (Figma UI3 style) */}
       <div
-        className="absolute -top-7 left-1/2 -translate-x-1/2 text-[#0d99ff] font-semibold text-[11px] font-sans px-2 py-0.5 pointer-events-none whitespace-nowrap z-30 select-none"
-        style={{ transform: `scale(${Math.max(0.7, 1 / zoom)})`, transformOrigin: 'bottom center' }}
+        className="absolute -top-7 left-1/2 -translate-x-1/2 font-semibold text-[11px] font-sans px-2 py-0.5 pointer-events-none whitespace-nowrap z-30 select-none"
+        style={{ color: accentColor, transform: `scale(${Math.max(0.7, 1 / zoom)})`, transformOrigin: 'bottom center' }}
       >
         {element.name}
       </div>
 
       {/* Bottom Center Dynamic Dimension Badge (e.g., 402 × 874) in Figma UI3 pill */}
       <div
-        className="absolute left-1/2 -bottom-7 -translate-x-1/2 bg-[#0d99ff] text-white text-[11px] font-mono font-medium px-2 py-0.5 rounded-full shadow-md pointer-events-none whitespace-nowrap z-30 flex items-center gap-1 select-none"
-        style={{ transform: `scale(${Math.max(0.7, 1 / zoom)})`, transformOrigin: 'top center' }}
+        className="absolute left-1/2 -bottom-7 -translate-x-1/2 text-white text-[11px] font-mono font-medium px-2 py-0.5 rounded-full shadow-md pointer-events-none whitespace-nowrap z-30 flex items-center gap-1 select-none"
+        style={{ backgroundColor: accentColor, transform: `scale(${Math.max(0.7, 1 / zoom)})`, transformOrigin: 'top center' }}
       >
         <span>{Math.round(width)}</span>
         <span className="opacity-75">×</span>
@@ -81,7 +83,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
             key={h.type}
             onPointerDown={(e) => onHandlePointerDown(e, h.type)}
             aria-label={`Resize ${h.type}`}
-            className="absolute bg-white border border-[#0d99ff] rounded-[1px] pointer-events-auto hover:scale-125 transition-transform z-30 shadow-xs"
+            className="absolute bg-white border rounded-[1px] pointer-events-auto hover:scale-125 transition-transform z-30 shadow-xs"
             style={{
               width: `${size}px`,
               height: `${size}px`,
@@ -89,6 +91,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
               top: `${h.y}px`,
               transform: 'translate(-50%, -50%)',
               cursor: h.cursor,
+              borderColor: accentColor,
             }}
           />
         );
@@ -100,41 +103,45 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
           <div
             onPointerDown={(e) => onRadiusHandlePointerDown(e, 0)}
             title="Adjust corner radius"
-            className="absolute w-2.5 h-2.5 rounded-full bg-white border border-[#0d99ff] pointer-events-auto hover:bg-[#0d99ff] hover:scale-125 transition-all shadow-xs z-30 cursor-nwse-resize"
+            className="absolute w-2.5 h-2.5 rounded-full bg-white border pointer-events-auto hover:scale-125 transition-all shadow-xs z-30 cursor-nwse-resize"
             style={{
               left: `${handleOffset}px`,
               top: `${handleOffset}px`,
               transform: 'translate(-50%, -50%)',
+              borderColor: accentColor,
             }}
           />
           <div
             onPointerDown={(e) => onRadiusHandlePointerDown(e, 1)}
             title="Adjust corner radius"
-            className="absolute w-2.5 h-2.5 rounded-full bg-white border border-[#0d99ff] pointer-events-auto hover:bg-[#0d99ff] hover:scale-125 transition-all shadow-xs z-30 cursor-nesw-resize"
+            className="absolute w-2.5 h-2.5 rounded-full bg-white border pointer-events-auto hover:scale-125 transition-all shadow-xs z-30 cursor-nesw-resize"
             style={{
               left: `${width - handleOffset}px`,
               top: `${handleOffset}px`,
               transform: 'translate(-50%, -50%)',
+              borderColor: accentColor,
             }}
           />
           <div
             onPointerDown={(e) => onRadiusHandlePointerDown(e, 2)}
             title="Adjust corner radius"
-            className="absolute w-2.5 h-2.5 rounded-full bg-white border border-[#0d99ff] pointer-events-auto hover:bg-[#0d99ff] hover:scale-125 transition-all shadow-xs z-30 cursor-nwse-resize"
+            className="absolute w-2.5 h-2.5 rounded-full bg-white border pointer-events-auto hover:scale-125 transition-all shadow-xs z-30 cursor-nwse-resize"
             style={{
               left: `${width - handleOffset}px`,
               top: `${height - handleOffset}px`,
               transform: 'translate(-50%, -50%)',
+              borderColor: accentColor,
             }}
           />
           <div
             onPointerDown={(e) => onRadiusHandlePointerDown(e, 3)}
             title="Adjust corner radius"
-            className="absolute w-2.5 h-2.5 rounded-full bg-white border border-[#0d99ff] pointer-events-auto hover:bg-[#0d99ff] hover:scale-125 transition-all shadow-xs z-30 cursor-nesw-resize"
+            className="absolute w-2.5 h-2.5 rounded-full bg-white border pointer-events-auto hover:scale-125 transition-all shadow-xs z-30 cursor-nesw-resize"
             style={{
               left: `${handleOffset}px`,
               top: `${height - handleOffset}px`,
               transform: 'translate(-50%, -50%)',
+              borderColor: accentColor,
             }}
           />
         </>

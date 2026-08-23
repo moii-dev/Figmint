@@ -13,11 +13,20 @@ import {
   Point,
   FigmaProject,
   LinearGradientFill,
+  DesignToken,
+  DesignTokenCategory,
+  TokenBindableProperty,
 } from '../types/figma';
 import {
   INITIAL_PROJECTS,
   SAMPLE_BANKING_ELEMENTS,
 } from '../data/sampleCanvas';
+import { buildStarterComponent, StarterComponentKind } from '../data/uiKit';
+import {
+  ClipboardPayload,
+  parseClipboardPayload,
+  serializeClipboardPayload,
+} from '../utils/clipboard';
 import {
   getBoundingBox,
   generateSvgString,
@@ -33,7 +42,23 @@ import {
   canReparentElement,
   getTopLevelSelectionIds,
   worldToLocalPosition,
+  isAncestor,
 } from '../utils/hierarchy';
+import { applyAutoLayout, DEFAULT_LAYOUT_PADDING } from '../utils/layout';
+import {
+  createInstanceTree,
+  detachInstanceTree,
+  detachOrphanedInstances,
+  getInstanceRoot,
+  recordInstanceOverride,
+  syncInstances,
+} from '../utils/components';
+import {
+  bindElementToken,
+  DEFAULT_DESIGN_TOKENS,
+  removeTokenAndMaterialize,
+  resolveElementTokens,
+} from '../utils/tokens';
 import {
   loadProjectsFromIndexedDb,
   persistProjects,
@@ -55,16 +80,15 @@ const IMPORTABLE_TYPES = new Set([
   'arrow',
   'image',
   'video',
+  'component',
+  'instance',
 ]);
-const CLIPBOARD_PREFIX = 'FIGMINT_ELEMENTS:';
-
-interface ClipboardPayload {
-  version: 1;
-  elements: CanvasElement[];
-  topLevelIds: string[];
-}
-
 export type SaveStatus = 'loading' | 'saving' | 'saved' | 'error';
+
+interface HistorySnapshot {
+  elements: CanvasElement[];
+  tokens: DesignToken[];
+}
 
 function createElementId(type: CanvasElement['type']): string {
   return `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -91,6 +115,17 @@ function cloneElementTree(
       id: idMap.get(element.id)!,
       name: topLevelSet.has(element.id) ? `${element.name} (Copy)` : element.name,
       parentId,
+      mainComponentId: element.mainComponentId
+        ? idMap.get(element.mainComponentId) || element.mainComponentId
+        : undefined,
+      sourceElementId: element.sourceElementId
+        ? idMap.get(element.sourceElementId) || element.sourceElementId
+        : undefined,
+      instanceOverrides: element.instanceOverrides
+        ? Object.fromEntries(
+            Object.entries(element.instanceOverrides).map(([sourceId, value]) => [idMap.get(sourceId) || sourceId, value])
+          )
+        : undefined,
       x: shouldOffset ? element.x + offset : element.x,
       y: shouldOffset ? element.y + offset : element.y,
     };
@@ -214,17 +249,66 @@ function normalizeImportedElements(value: unknown): CanvasElement[] | null {
     } as CanvasElement);
   }
 
-  const rootFrameIds = new Set(
-    normalized.filter((element) => element.type === 'frame' && !element.parentId).map((element) => element.id)
+  const containerIds = new Set(
+    normalized.filter((element) => ['frame', 'component', 'instance'].includes(element.type)).map((element) => element.id)
   );
 
   return normalized.map((element) => ({
     ...element,
     parentId:
-      element.type !== 'frame' && element.parentId && rootFrameIds.has(element.parentId)
+      element.parentId &&
+      element.parentId !== element.id &&
+      containerIds.has(element.parentId) &&
+      !isAncestor(element.id, element.parentId, normalized)
         ? element.parentId
         : null,
   }));
+}
+
+function normalizeImportedTokens(value: unknown): DesignToken[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const raw = item as Partial<DesignToken>;
+    if (
+      typeof raw.id !== 'string' ||
+      typeof raw.name !== 'string' ||
+      !['color', 'spacing', 'radius'].includes(raw.category || '')
+    ) return [];
+    if (raw.category === 'color' && typeof raw.value !== 'string') return [];
+    if (raw.category !== 'color' && !Number.isFinite(raw.value)) return [];
+    return [{
+      id: raw.id,
+      name: raw.name,
+      category: raw.category,
+      value: raw.category === 'color' ? raw.value : Math.max(0, Number(raw.value)),
+    } as DesignToken];
+  });
+}
+
+function getOwningComponentMaster(
+  elementId: string,
+  allElements: CanvasElement[]
+): CanvasElement | null {
+  let current = allElements.find((element) => element.id === elementId);
+  const visited = new Set<string>();
+  while (current && !visited.has(current.id)) {
+    if (current.type === 'instance') return null;
+    if (current.type === 'component') return current;
+    visited.add(current.id);
+    current = current.parentId ? allElements.find((element) => element.id === current!.parentId) : undefined;
+  }
+  return null;
+}
+
+function settleDocumentMutation(
+  elements: CanvasElement[],
+  affectedMasterIds: Iterable<string> = []
+): CanvasElement[] {
+  let next = applyAutoLayout(elements);
+  for (const masterId of new Set(affectedMasterIds)) next = syncInstances(next, masterId);
+  next = applyAutoLayout(next);
+  return detachOrphanedInstances(next);
 }
 
 interface CanvasContextType {
@@ -232,6 +316,7 @@ interface CanvasContextType {
   projects: FigmaProject[];
   currentProjectId: string | null;
   currentProject: FigmaProject | null;
+  tokens: DesignToken[];
   viewMode: 'dashboard' | 'editor';
   openDashboard: () => void;
   openProject: (projectId: string) => void;
@@ -286,6 +371,13 @@ interface CanvasContextType {
   addElement: (element: CanvasElement, recordHistory?: boolean) => void;
   updateElement: (id: string, updates: Partial<CanvasElement>, recordHistory?: boolean) => void;
   updateElements: (updates: { id: string; changes: Partial<CanvasElement> }[], recordHistory?: boolean) => void;
+  createComponentFromSelection: () => void;
+  createInstance: (masterId: string) => void;
+  resetInstance: (instanceId: string) => void;
+  detachInstance: (instanceId: string) => void;
+  goToMainComponent: (instanceId: string) => void;
+  wrapSelectionInAutoLayout: () => void;
+  insertStarterComponent: (kind: StarterComponentKind) => void;
   deleteSelected: () => void;
   duplicateSelected: () => void;
   copySelected: () => void;
@@ -305,6 +397,10 @@ interface CanvasContextType {
   toggleVisibility: (id: string) => void;
   toggleLock: (id: string) => void;
   renameElement: (id: string, name: string) => void;
+  addToken: (category: DesignTokenCategory) => void;
+  updateToken: (tokenId: string, changes: Partial<DesignToken>) => void;
+  deleteToken: (tokenId: string) => void;
+  bindToken: (elementId: string, property: TokenBindableProperty, tokenId: string | null) => void;
 
   // Presets & Spawning
   spawnPresetFrame: (preset: DevicePreset, position?: Point) => void;
@@ -340,6 +436,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [viewMode, setViewMode] = useState<'dashboard' | 'editor'>('editor');
 
   const currentProject = projects.find((p) => p.id === currentProjectId) || projects[0] || null;
+  const tokens = currentProject?.tokens || DEFAULT_DESIGN_TOKENS;
 
   // Active Editor State
   const [elements, setElements] = useState<CanvasElement[]>(
@@ -369,7 +466,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   persistenceRef.current = { projects, currentProjectId, elements, zoom, pan };
 
   // History stack
-  const historyRef = useRef<CanvasElement[][]>([elements]);
+  const historyRef = useRef<HistorySnapshot[]>([{ elements, tokens }]);
   const historyIndexRef = useRef<number>(0);
   const [, setHistoryTick] = useState(0);
 
@@ -394,7 +491,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setZoomState(targetProject.zoom || 0.85);
           setPanState(targetProject.pan || { x: 260, y: 40 });
           setSelectedIds(targetProject.elements.length > 0 ? [targetProject.elements[0].id] : []);
-          historyRef.current = [targetProject.elements];
+          historyRef.current = [{ elements: targetProject.elements, tokens: targetProject.tokens || DEFAULT_DESIGN_TOKENS }];
           historyIndexRef.current = 0;
         }
 
@@ -504,8 +601,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => clearTimeout(timeout);
   }, [elements, zoom, pan, currentProjectId, storageReady]);
 
-  const pushHistory = useCallback((newElements: CanvasElement[]) => {
-    const snapshot = JSON.parse(JSON.stringify(newElements)) as CanvasElement[];
+  const pushHistory = useCallback((newElements: CanvasElement[], newTokens: DesignToken[] = tokens) => {
+    const snapshot = JSON.parse(JSON.stringify({ elements: newElements, tokens: newTokens })) as HistorySnapshot;
     const currentSnapshot = historyRef.current[historyIndexRef.current];
     if (currentSnapshot && JSON.stringify(currentSnapshot) === JSON.stringify(snapshot)) return;
 
@@ -515,7 +612,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     historyRef.current = nextHistory;
     historyIndexRef.current = nextHistory.length - 1;
     setHistoryTick((t) => t + 1);
-  }, []);
+  }, [tokens]);
 
   // Project Actions
   const openDashboard = useCallback(() => {
@@ -537,7 +634,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setZoomState(target.zoom || 0.85);
     setPanState(target.pan || { x: 260, y: 40 });
     setSelectedIds(target.elements.length > 0 ? [target.elements[0].id] : []);
-    historyRef.current = [target.elements];
+    historyRef.current = [{ elements: target.elements, tokens: target.tokens || DEFAULT_DESIGN_TOKENS }];
     historyIndexRef.current = 0;
     setViewMode('editor');
   }, [currentProjectId, elements, pan, projects, zoom]);
@@ -609,6 +706,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         createdAt: Date.now(),
         updatedAt: Date.now(),
         elements: initialEls,
+        tokens: DEFAULT_DESIGN_TOKENS,
         zoom: 0.85,
         pan: { x: 260, y: 40 },
       };
@@ -622,7 +720,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setZoomState(0.85);
       setPanState({ x: 260, y: 40 });
       setSelectedIds(initialEls.length > 0 ? [initialEls[0].id] : []);
-      historyRef.current = [initialEls];
+      historyRef.current = [{ elements: initialEls, tokens: DEFAULT_DESIGN_TOKENS }];
       historyIndexRef.current = 0;
       setViewMode('editor');
     },
@@ -764,7 +862,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const addElement = useCallback(
     (element: CanvasElement, recordHistory = true) => {
       setElements((prev) => {
-        const next = [...prev, element];
+        const master = element.parentId ? getOwningComponentMaster(element.parentId, prev) : null;
+        const next = settleDocumentMutation([...prev, element], master ? [master.id] : []);
         if (recordHistory) pushHistory(next);
         return next;
       });
@@ -776,7 +875,20 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateElement = useCallback(
     (id: string, updates: Partial<CanvasElement>, recordHistory = true) => {
       setElements((prev) => {
-        const next = prev.map((el) => (el.id === id ? { ...el, ...updates } : el));
+        const master = getOwningComponentMaster(id, prev);
+        const target = prev.find((element) => element.id === id);
+        const instanceRoot = target ? getInstanceRoot(target, prev) : null;
+        const overrideKeys = new Set(['textContent', 'fill', 'fillOpacity', 'visible']);
+        const rootKeys = new Set(['x', 'y', 'width', 'height', 'rotation', 'opacity', 'name']);
+        const effectiveUpdates = instanceRoot
+          ? Object.fromEntries(Object.entries(updates).filter(([key]) =>
+              overrideKeys.has(key) || (target?.id === instanceRoot.id && rootKeys.has(key))
+            )) as Partial<CanvasElement>
+          : updates;
+        if (Object.keys(effectiveUpdates).length === 0) return prev;
+        let next = prev.map((el) => (el.id === id ? { ...el, ...effectiveUpdates } : el));
+        if (target && instanceRoot) next = recordInstanceOverride(next, id, effectiveUpdates);
+        if (recordHistory) next = settleDocumentMutation(next, master ? [master.id] : []);
         if (recordHistory) pushHistory(next);
         return next;
       });
@@ -787,13 +899,36 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateElements = useCallback(
     (updates: { id: string; changes: Partial<CanvasElement> }[], recordHistory = true) => {
       setElements((prev) => {
-        const map = new Map(updates.map((u) => [u.id, u.changes]));
-        const next = prev.map((el) => {
+        const effective = updates.flatMap((update) => {
+          const target = prev.find((element) => element.id === update.id);
+          const instanceRoot = target ? getInstanceRoot(target, prev) : null;
+          if (!instanceRoot) return [update];
+          const overrideKeys = new Set(['textContent', 'fill', 'fillOpacity', 'visible']);
+          const rootKeys = new Set(['x', 'y', 'width', 'height', 'rotation', 'opacity', 'name']);
+          const changes = Object.fromEntries(Object.entries(update.changes).filter(([key]) =>
+            overrideKeys.has(key) || (target?.id === instanceRoot.id && rootKeys.has(key))
+          )) as Partial<CanvasElement>;
+          return Object.keys(changes).length > 0 ? [{ id: update.id, changes }] : [];
+        });
+        if (effective.length === 0) return prev;
+        const map = new Map(effective.map((u) => [u.id, u.changes]));
+        const affectedMasters = updates.flatMap((update) => {
+          const master = getOwningComponentMaster(update.id, prev);
+          return master ? [master.id] : [];
+        });
+        let next = prev.map((el) => {
           if (map.has(el.id)) {
             return { ...el, ...map.get(el.id)! };
           }
           return el;
         });
+        effective.forEach((update) => {
+          const target = prev.find((element) => element.id === update.id);
+          if (target && getInstanceRoot(target, prev)) {
+            next = recordInstanceOverride(next, update.id, update.changes);
+          }
+        });
+        if (recordHistory) next = settleDocumentMutation(next, affectedMasters);
         if (recordHistory) pushHistory(next);
         return next;
       });
@@ -801,9 +936,227 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [pushHistory]
   );
 
+  const createComponentFromSelection = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    setElements((prev) => {
+      const topLevelIds = getTopLevelSelectionIds(selectedIds, prev);
+      const selected = topLevelIds.flatMap((id) => {
+        const element = prev.find((item) => item.id === id);
+        return element ? [element] : [];
+      });
+      if (selected.length === 0) return prev;
+      if (selected.some((element) => getInstanceRoot(element, prev))) return prev;
+
+      if (selected.length === 1 && ['frame', 'component'].includes(selected[0].type)) {
+        const componentId = selected[0].id;
+        const next = settleDocumentMutation(
+          prev.map((element) => element.id === componentId
+            ? { ...element, type: 'component', name: element.type === 'component' ? element.name : `Component / ${element.name}` }
+            : element),
+          [componentId]
+        );
+        pushHistory(next);
+        setSelectedIds([componentId]);
+        return next;
+      }
+
+      const rects = selected.map((element) => getWorldRect(element, prev));
+      const minX = Math.min(...rects.map((rect) => rect.x));
+      const minY = Math.min(...rects.map((rect) => rect.y));
+      const maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
+      const maxY = Math.max(...rects.map((rect) => rect.y + rect.height));
+      const componentId = createElementId('component');
+      const component: CanvasElement = {
+        id: componentId,
+        name: 'Component / New',
+        type: 'component',
+        x: minX,
+        y: minY,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY),
+        rotation: 0,
+        fill: '#ffffff',
+        fillOpacity: 0,
+        stroke: '#9747ff',
+        strokeWidth: 1,
+        strokeOpacity: 1,
+        strokeStyle: 'solid',
+        strokeAlign: 'inside',
+        cornerRadius: 0,
+        opacity: 1,
+        visible: true,
+        locked: false,
+        clipContent: false,
+        parentId: null,
+      };
+      const selectedSet = new Set(topLevelIds);
+      const next = settleDocumentMutation([
+        ...prev.map((element) => {
+          if (!selectedSet.has(element.id)) return element;
+          const world = getWorldPosition(element, prev);
+          return { ...element, parentId: componentId, x: world.x - minX, y: world.y - minY };
+        }),
+        component,
+      ], [componentId]);
+      pushHistory(next);
+      setSelectedIds([componentId]);
+      return next;
+    });
+  }, [pushHistory, selectedIds]);
+
+  const createInstance = useCallback((masterId: string) => {
+    setElements((prev) => {
+      const master = prev.find((element) => element.id === masterId && element.type === 'component');
+      if (!master) return prev;
+      const viewportPosition = {
+        x: Math.round((-pan.x + viewportSizeRef.current.width / 2) / zoom - master.width / 2),
+        y: Math.round((-pan.y + viewportSizeRef.current.height / 2) / zoom - master.height / 2),
+      };
+      const position = Math.abs(viewportPosition.x - master.x) < 32 && Math.abs(viewportPosition.y - master.y) < 32
+        ? { x: master.x + master.width + 80, y: master.y }
+        : viewportPosition;
+      const created = createInstanceTree(masterId, prev, position);
+      if (!created) return prev;
+      const next = settleDocumentMutation([...prev, ...created.elements]);
+      pushHistory(next);
+      setSelectedIds([created.rootId]);
+      setActiveLeftTab('layers');
+      return next;
+    });
+  }, [pan.x, pan.y, pushHistory, zoom]);
+
+  const resetInstance = useCallback((instanceId: string) => {
+    setElements((prev) => {
+      const instance = prev.find((element) => element.id === instanceId && element.type === 'instance');
+      if (!instance?.mainComponentId) return prev;
+      const cleared = prev.map((element) => element.id === instanceId ? { ...element, instanceOverrides: {} } : element);
+      const next = settleDocumentMutation(syncInstances(cleared, instance.mainComponentId));
+      pushHistory(next);
+      return next;
+    });
+  }, [pushHistory]);
+
+  const detachInstance = useCallback((instanceId: string) => {
+    setElements((prev) => {
+      const next = detachInstanceTree(prev, instanceId);
+      if (next === prev) return prev;
+      pushHistory(next);
+      return next;
+    });
+  }, [pushHistory]);
+
+  const goToMainComponent = useCallback((instanceId: string) => {
+    const instance = elements.find((element) => element.id === instanceId && element.type === 'instance');
+    const master = instance?.mainComponentId
+      ? elements.find((element) => element.id === instance.mainComponentId)
+      : null;
+    if (!master) return;
+    const world = getWorldPosition(master, elements);
+    setSelectedIds([master.id]);
+    setPanState({
+      x: viewportSizeRef.current.width / 2 - (world.x + master.width / 2) * zoom,
+      y: viewportSizeRef.current.height / 2 - (world.y + master.height / 2) * zoom,
+    });
+  }, [elements, zoom]);
+
+  const wrapSelectionInAutoLayout = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    setElements((prev) => {
+      const topLevelIds = getTopLevelSelectionIds(selectedIds, prev);
+      const selected = topLevelIds.flatMap((id) => {
+        const element = prev.find((item) => item.id === id);
+        return element ? [element] : [];
+      });
+      if (selected.length === 0) return prev;
+      if (selected.some((element) => getInstanceRoot(element, prev))) return prev;
+      const directContainer = selected.length === 1 && ['frame', 'component'].includes(selected[0].type)
+        ? selected[0]
+        : null;
+      if (directContainer) {
+        const next = settleDocumentMutation(prev.map((element) => element.id === directContainer.id ? {
+          ...element,
+          layoutMode: element.layoutMode && element.layoutMode !== 'none' ? element.layoutMode : 'horizontal',
+          layoutGap: element.layoutGap ?? 8,
+          layoutPadding: element.layoutPadding || DEFAULT_LAYOUT_PADDING,
+          layoutPrimaryAlign: element.layoutPrimaryAlign || 'start',
+          layoutCounterAlign: element.layoutCounterAlign || 'center',
+          layoutSizingHorizontal: element.layoutSizingHorizontal || 'fixed',
+          layoutSizingVertical: element.layoutSizingVertical || 'fixed',
+        } : element), [directContainer.type === 'component' ? directContainer.id : '']);
+        pushHistory(next);
+        return next;
+      }
+
+      const rects = selected.map((element) => getWorldRect(element, prev));
+      const minX = Math.min(...rects.map((rect) => rect.x));
+      const minY = Math.min(...rects.map((rect) => rect.y));
+      const maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
+      const maxY = Math.max(...rects.map((rect) => rect.y + rect.height));
+      const mode = maxX - minX >= maxY - minY ? 'horizontal' as const : 'vertical' as const;
+      const frameId = createElementId('frame');
+      const sharedParentId = selected.every((element) => (element.parentId || null) === (selected[0].parentId || null))
+        ? selected[0].parentId || null
+        : null;
+      const localFramePosition = worldToLocalPosition({ x: minX - 12, y: minY - 12 }, sharedParentId, prev);
+      const frame: CanvasElement = {
+        id: frameId, name: 'Auto Layout', type: 'frame', x: localFramePosition.x, y: localFramePosition.y,
+        width: maxX - minX + 24, height: maxY - minY + 24, rotation: 0,
+        fill: '#ffffff', fillOpacity: 1, stroke: '#000000', strokeWidth: 0,
+        strokeOpacity: 1, strokeStyle: 'solid', strokeAlign: 'inside', cornerRadius: 12,
+        opacity: 1, visible: true, locked: false, clipContent: false, parentId: sharedParentId,
+        layoutMode: mode, layoutGap: 8, layoutPadding: DEFAULT_LAYOUT_PADDING,
+        layoutPrimaryAlign: 'start', layoutCounterAlign: 'center',
+        layoutSizingHorizontal: 'fixed', layoutSizingVertical: 'fixed',
+      };
+      const ordered = [...selected].sort((a, b) => {
+        const aw = getWorldPosition(a, prev);
+        const bw = getWorldPosition(b, prev);
+        return mode === 'horizontal' ? aw.x - bw.x : aw.y - bw.y;
+      });
+      const selectedSet = new Set(topLevelIds);
+      const outerMaster = sharedParentId ? getOwningComponentMaster(sharedParentId, prev) : null;
+      const next = settleDocumentMutation([
+        ...prev.filter((element) => !selectedSet.has(element.id)),
+        frame,
+        ...ordered.map((element) => ({ ...element, parentId: frameId })),
+      ], outerMaster ? [outerMaster.id] : []);
+      pushHistory(next);
+      setSelectedIds([frameId]);
+      return next;
+    });
+  }, [pushHistory, selectedIds]);
+
+  const insertStarterComponent = useCallback((kind: StarterComponentKind) => {
+    const existingMaster = elements.find(
+      (element) => element.type === 'component' && element.presetName === `ui-kit:${kind}`
+    );
+    if (existingMaster) {
+      createInstance(existingMaster.id);
+      return;
+    }
+
+    setElements((prev) => {
+      const position = {
+        x: Math.round((-pan.x + viewportSizeRef.current.width / 2) / zoom - 120),
+        y: Math.round((-pan.y + viewportSizeRef.current.height / 2) / zoom - 50),
+      };
+      const tree = buildStarterComponent(kind, position);
+      const root = tree[0];
+      const next = settleDocumentMutation([...prev, ...tree], [root.id]);
+      pushHistory(next);
+      setSelectedIds([root.id]);
+      setActiveLeftTab('layers');
+      return next;
+    });
+  }, [createInstance, elements, pan.x, pan.y, pushHistory, zoom]);
+
   const deleteSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
     setElements((prev) => {
+      const affectedMasters = selectedIds.flatMap((id) => {
+        const master = getOwningComponentMaster(id, prev);
+        return master ? [master.id] : [];
+      });
       // Collect all selected IDs + their descendant children
       const toDelete = new Set<string>(selectedIds);
       selectedIds.forEach((id) => {
@@ -811,7 +1164,10 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         descendants.forEach((d) => toDelete.add(d));
       });
 
-      const next = prev.filter((el) => !toDelete.has(el.id));
+      const next = settleDocumentMutation(
+        prev.filter((el) => !toDelete.has(el.id)),
+        affectedMasters
+      );
       pushHistory(next);
       return next;
     });
@@ -826,7 +1182,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       topLevelIds.forEach((id) => getAllDescendantIds(id, prev).forEach((childId) => copyIds.add(childId)));
       const source = prev.filter((element) => copyIds.has(element.id));
       const cloned = cloneElementTree(source, topLevelIds, prev);
-      const next = [...prev, ...cloned.elements];
+      const next = settleDocumentMutation([...prev, ...cloned.elements]);
       pushHistory(next);
       setSelectedIds(cloned.selectedIds);
       return next;
@@ -839,40 +1195,41 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const copyIds = new Set(topLevelIds);
     topLevelIds.forEach((id) => getAllDescendantIds(id, elements).forEach((childId) => copyIds.add(childId)));
     const payload: ClipboardPayload = {
-      version: 1,
+      version: 2,
       elements: elements.filter((element) => copyIds.has(element.id)),
       topLevelIds,
+      sourceProjectId: currentProjectId,
     };
     clipboardRef.current = payload;
-    void navigator.clipboard?.writeText(`${CLIPBOARD_PREFIX}${JSON.stringify(payload)}`).catch(() => undefined);
-  }, [elements, selectedIds]);
+    void navigator.clipboard?.writeText(serializeClipboardPayload(payload)).catch(() => undefined);
+  }, [currentProjectId, elements, selectedIds]);
 
   const pasteCopied = useCallback((serializedPayload?: string): boolean => {
     let payload = clipboardRef.current;
-    if (serializedPayload?.startsWith(CLIPBOARD_PREFIX)) {
-      try {
-        const parsed = JSON.parse(serializedPayload.slice(CLIPBOARD_PREFIX.length)) as ClipboardPayload;
-        if (parsed?.version === 1 && Array.isArray(parsed.elements) && Array.isArray(parsed.topLevelIds)) {
-          payload = parsed;
-        }
-      } catch {
-        return false;
-      }
-    } else if (serializedPayload) {
-      return false;
+    if (serializedPayload) {
+      const parsed = parseClipboardPayload(serializedPayload);
+      if (parsed) payload = parsed;
+      else return false;
     }
     if (!payload?.elements.length) return false;
 
     setElements((prev) => {
       const cloned = cloneElementTree(payload!.elements, payload!.topLevelIds, prev, 24);
-      const next = [...prev, ...cloned.elements];
+      let next = settleDocumentMutation([...prev, ...cloned.elements]);
+      if (payload!.version === 1 || payload!.sourceProjectId !== currentProjectId) {
+        cloned.selectedIds.forEach((id) => {
+          if (next.find((element) => element.id === id)?.type === 'instance') {
+            next = detachInstanceTree(next, id);
+          }
+        });
+      }
       pushHistory(next);
       setSelectedIds(cloned.selectedIds);
       return next;
     });
     clipboardRef.current = payload;
     return true;
-  }, [pushHistory]);
+  }, [currentProjectId, pushHistory]);
 
   const reorderElement = useCallback(
     (id: string, targetIndex: number) => {
@@ -896,6 +1253,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (!targetElement) return prev;
 
         if (!canReparentElement(targetElement, newParentId, prev)) return prev;
+        const oldMaster = getOwningComponentMaster(elementId, prev);
+        const newMaster = newParentId ? getOwningComponentMaster(newParentId, prev) : null;
 
         const { x, y, parentId } = reparentElement(targetElement, newParentId, prev);
         const updated = prev.map((el) =>
@@ -910,8 +1269,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         }
 
-        pushHistory(updated);
-        return updated;
+        const next = settleDocumentMutation(updated, [oldMaster?.id || '', newMaster?.id || '']);
+        pushHistory(next);
+        return next;
       });
     },
     [pushHistory]
@@ -922,10 +1282,27 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     (elementIds: string[] = []) => {
       setElements((prev) => {
         let next = [...prev];
+        const affectedMasters = elementIds.flatMap((id) => {
+          const master = getOwningComponentMaster(id, prev);
+          return master ? [master.id] : [];
+        });
 
         for (const elId of elementIds) {
           const el = next.find((item) => item.id === elId);
-          if (!el || el.type === 'frame') continue;
+          if (!el || el.type === 'component') continue;
+
+          const currentParent = el.parentId ? next.find((item) => item.id === el.parentId) : null;
+          if (currentParent?.layoutMode && currentParent.layoutMode !== 'none') {
+            const siblings = next
+              .filter((item) => item.parentId === currentParent.id && item.layoutPositioning !== 'absolute')
+              .sort((a, b) => currentParent.layoutMode === 'horizontal'
+                ? a.x + a.width / 2 - (b.x + b.width / 2)
+                : a.y + a.height / 2 - (b.y + b.height / 2));
+            const siblingIds = new Set(siblings.map((item) => item.id));
+            const insertionIndex = Math.min(...next.flatMap((item, index) => siblingIds.has(item.id) ? [index] : []));
+            next = next.filter((item) => !siblingIds.has(item.id));
+            next.splice(Number.isFinite(insertionIndex) ? insertionIndex : next.length, 0, ...siblings);
+          }
 
           // Calculate center world coordinate of the element
           const worldPos = getWorldPosition(el, next);
@@ -947,6 +1324,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         }
 
+        next = settleDocumentMutation(next, affectedMasters);
         pushHistory(next);
         return next;
       });
@@ -1100,11 +1478,77 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const renameElement = useCallback((id: string, name: string) => {
     setElements((prev) => {
-      const next = prev.map((el) => (el.id === id ? { ...el, name } : el));
+      const master = getOwningComponentMaster(id, prev);
+      const next = settleDocumentMutation(
+        prev.map((el) => (el.id === id ? { ...el, name } : el)),
+        master ? [master.id] : []
+      );
       pushHistory(next);
       return next;
     });
   }, [pushHistory]);
+
+  const addToken = useCallback((category: DesignTokenCategory) => {
+    if (!currentProjectId) return;
+    const count = tokens.filter((token) => token.category === category).length + 1;
+    const token: DesignToken = {
+      id: `token-${category}-${Date.now()}`,
+      name: `${category.charAt(0).toUpperCase() + category.slice(1)} / ${count}`,
+      category,
+      value: category === 'color' ? '#0d99ff' : category === 'radius' ? 12 : 8,
+    };
+    const nextTokens = [...tokens, token];
+    setProjects((prev) => prev.map((project) => project.id === currentProjectId
+      ? { ...project, tokens: nextTokens, updatedAt: Date.now() }
+      : project));
+    pushHistory(elements, nextTokens);
+  }, [currentProjectId, elements, pushHistory, tokens]);
+
+  const updateToken = useCallback((tokenId: string, changes: Partial<DesignToken>) => {
+    if (!currentProjectId) return;
+    const nextTokens = tokens.map((token) => token.id === tokenId ? { ...token, ...changes, id: token.id } : token);
+    setProjects((prev) => prev.map((project) => project.id === currentProjectId
+      ? {
+          ...project,
+          tokens: nextTokens,
+          updatedAt: Date.now(),
+        }
+      : project));
+    setElements((prev) => {
+      const next = settleDocumentMutation(prev.map((element) => resolveElementTokens(element, nextTokens)));
+      pushHistory(next, nextTokens);
+      return next;
+    });
+  }, [currentProjectId, pushHistory, tokens]);
+
+  const deleteToken = useCallback((tokenId: string) => {
+    if (!currentProjectId) return;
+    const nextTokens = tokens.filter((token) => token.id !== tokenId);
+    setElements((prev) => {
+      const next = removeTokenAndMaterialize(prev, tokens, tokenId);
+      pushHistory(next, nextTokens);
+      return next;
+    });
+    setProjects((prev) => prev.map((project) => project.id === currentProjectId
+      ? { ...project, tokens: nextTokens, updatedAt: Date.now() }
+      : project));
+  }, [currentProjectId, pushHistory, tokens]);
+
+  const bindToken = useCallback((elementId: string, property: TokenBindableProperty, tokenId: string | null) => {
+    setElements((prev) => {
+      const target = prev.find((element) => element.id === elementId);
+      if (!target || getInstanceRoot(target, prev)) return prev;
+      const master = getOwningComponentMaster(elementId, prev);
+      const next = settleDocumentMutation(
+        prev.map((element) => element.id === elementId
+          ? resolveElementTokens(bindElementToken(element, property, tokenId), tokens)
+          : element),
+        master ? [master.id] : []
+      );
+      pushHistory(next);
+      return next;
+    });
+  }, [pushHistory, tokens]);
 
   const spawnPresetFrame = useCallback(
     (preset: DevicePreset, position?: Point) => {
@@ -1293,21 +1737,31 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (historyIndexRef.current > 0) {
       historyIndexRef.current -= 1;
       const previousState = historyRef.current[historyIndexRef.current];
-      setElements(JSON.parse(JSON.stringify(previousState)));
-      setSelectedIds((ids) => ids.filter((id) => previousState.some((element) => element.id === id)));
+      setElements(JSON.parse(JSON.stringify(previousState.elements)));
+      setSelectedIds((ids) => ids.filter((id) => previousState.elements.some((element) => element.id === id)));
+      if (currentProjectId) {
+        setProjects((prev) => prev.map((project) => project.id === currentProjectId
+          ? { ...project, tokens: previousState.tokens, updatedAt: Date.now() }
+          : project));
+      }
       setHistoryTick((t) => t + 1);
     }
-  }, []);
+  }, [currentProjectId]);
 
   const redo = useCallback(() => {
     if (historyIndexRef.current < historyRef.current.length - 1) {
       historyIndexRef.current += 1;
       const nextState = historyRef.current[historyIndexRef.current];
-      setElements(JSON.parse(JSON.stringify(nextState)));
-      setSelectedIds((ids) => ids.filter((id) => nextState.some((element) => element.id === id)));
+      setElements(JSON.parse(JSON.stringify(nextState.elements)));
+      setSelectedIds((ids) => ids.filter((id) => nextState.elements.some((element) => element.id === id)));
+      if (currentProjectId) {
+        setProjects((prev) => prev.map((project) => project.id === currentProjectId
+          ? { ...project, tokens: nextState.tokens, updatedAt: Date.now() }
+          : project));
+      }
       setHistoryTick((t) => t + 1);
     }
-  }, []);
+  }, [currentProjectId]);
 
   const exportSelected = useCallback(
     (format: 'png' | 'svg' | 'json', scale = 2) => {
@@ -1319,52 +1773,58 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const targetElements = selected.length > 0 ? selected : elements;
 
       if (format === 'json') {
-        const json = JSON.stringify(targetElements, null, 2);
+        const json = JSON.stringify({ format: 'figmint', version: 2, elements: targetElements, tokens }, null, 2);
         downloadFile(json, `${currentProject?.title || 'design'}.json`, 'application/json');
       } else if (format === 'svg') {
-        const svg = generateSvgString(targetElements, elements);
+        const svg = generateSvgString(targetElements, elements, undefined, tokens);
         downloadFile(svg, `${currentProject?.title || 'design'}.svg`, 'image/svg+xml');
       } else if (format === 'png') {
-        const svg = generateSvgString(targetElements, elements);
+        const svg = generateSvgString(targetElements, elements, undefined, tokens);
         downloadPngFromSvg(svg, `${currentProject?.title || 'design'}.png`, scale);
       }
     },
-    [elements, selectedIds, currentProject]
+    [elements, selectedIds, currentProject, tokens]
   );
 
   const exportAll = useCallback(
     (format: 'png' | 'svg' | 'json', scale = 2) => {
       if (format === 'json') {
-        const json = JSON.stringify(elements, null, 2);
+        const json = JSON.stringify({ format: 'figmint', version: 2, elements, tokens }, null, 2);
         downloadFile(json, `${currentProject?.title || 'figma-project'}.json`, 'application/json');
       } else if (format === 'svg') {
-        const svg = generateSvgString(elements, elements);
+        const svg = generateSvgString(elements, elements, undefined, tokens);
         downloadFile(svg, `${currentProject?.title || 'figma-project'}.svg`, 'image/svg+xml');
       } else if (format === 'png') {
-        const svg = generateSvgString(elements, elements);
+        const svg = generateSvgString(elements, elements, undefined, tokens);
         downloadPngFromSvg(svg, `${currentProject?.title || 'figma-project'}.png`, scale);
       }
     },
-    [elements, currentProject]
+    [elements, currentProject, tokens]
   );
 
   const importJson = useCallback(
     (jsonString: string): boolean => {
       try {
         const parsed = JSON.parse(jsonString);
-        const imported = normalizeImportedElements(parsed);
+        const imported = normalizeImportedElements(Array.isArray(parsed) ? parsed : parsed?.elements);
         if (!imported) return false;
+        const importedTokens = Array.isArray(parsed) ? null : normalizeImportedTokens(parsed?.tokens);
 
         setElements(imported);
-        pushHistory(imported);
+        pushHistory(imported, importedTokens || tokens);
         setSelectedIds(imported.length > 0 ? [imported[0].id] : []);
+        if (importedTokens && currentProjectId) {
+          setProjects((prev) => prev.map((project) => project.id === currentProjectId
+            ? { ...project, tokens: importedTokens, updatedAt: Date.now() }
+            : project));
+        }
         return true;
       } catch (err) {
         console.error('Failed to parse JSON design:', err);
       }
       return false;
     },
-    [pushHistory]
+    [currentProjectId, pushHistory, tokens]
   );
 
   const resetCanvas = useCallback(() => {
@@ -1462,6 +1922,18 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        createComponentFromSelection();
+        return;
+      }
+
+      if (e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        wrapSelectionInAutoLayout();
+        return;
+      }
+
       // Tool Hotkeys
       switch (e.key.toLowerCase()) {
         case 'v':
@@ -1495,7 +1967,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, duplicateSelected, copySelected, deleteSelected, selectedIds, pushHistory, setTool, zoomToFit, zoomReset]);
+  }, [undo, redo, duplicateSelected, copySelected, deleteSelected, selectedIds, pushHistory, setTool, zoomToFit, zoomReset, createComponentFromSelection, wrapSelectionInAutoLayout]);
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
@@ -1531,6 +2003,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         projects,
         currentProjectId,
         currentProject,
+        tokens,
         viewMode,
         openDashboard,
         openProject,
@@ -1582,6 +2055,13 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addElement,
         updateElement,
         updateElements,
+        createComponentFromSelection,
+        createInstance,
+        resetInstance,
+        detachInstance,
+        goToMainComponent,
+        wrapSelectionInAutoLayout,
+        insertStarterComponent,
         deleteSelected,
         duplicateSelected,
         copySelected,
@@ -1598,6 +2078,10 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         toggleVisibility,
         toggleLock,
         renameElement,
+        addToken,
+        updateToken,
+        deleteToken,
+        bindToken,
         spawnPresetFrame,
         createShapeAt,
         undo,

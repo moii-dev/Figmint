@@ -27,9 +27,15 @@ import {
   Plus,
   FolderInput,
   FolderMinus,
+  Component,
+  LayoutTemplate,
+  Palette,
+  Radius,
+  MoveHorizontal,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement, ShapeType } from '../types/figma';
+import { STARTER_COMPONENTS } from '../data/uiKit';
 
 export const LeftSidebar: React.FC = () => {
   const {
@@ -46,12 +52,18 @@ export const LeftSidebar: React.FC = () => {
     bringToFront,
     sendToBack,
     reparentLayer,
-    addElement,
     activeLeftTab,
     setActiveLeftTab,
     isLeftSidebarOpen,
     collapsedFrames,
     toggleFrameCollapsed,
+    tokens,
+    createComponentFromSelection,
+    createInstance,
+    insertStarterComponent,
+    addToken,
+    updateToken,
+    deleteToken,
   } = useCanvas();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -89,6 +101,10 @@ export const LeftSidebar: React.FC = () => {
         return <Video size={13} className="text-gray-500" />;
       case 'text':
         return <Type size={13} className="text-gray-500" />;
+      case 'component':
+        return <span className="text-[12px] font-bold text-[#9747ff]">◆</span>;
+      case 'instance':
+        return <span className="text-[12px] font-bold text-[#9747ff]">◇</span>;
       default:
         return <Square size={13} className="text-gray-500" />;
     }
@@ -96,7 +112,8 @@ export const LeftSidebar: React.FC = () => {
 
   // Top level frames and canvas-root elements
   const rootElements = elements.filter((el) => !el.parentId);
-  const frames = elements.filter((el) => el.type === 'frame');
+  const frames = elements.filter((el) => el.type === 'frame' || el.type === 'component');
+  const localComponents = elements.filter((el) => el.type === 'component');
 
   const filterItem = (el: CanvasElement) => {
     if (!searchQuery) return true;
@@ -116,7 +133,7 @@ export const LeftSidebar: React.FC = () => {
     if (!draggedId || draggedId === targetElement.id) return;
 
     // Check if target is a frame -> can drop inside
-    if (targetElement.type === 'frame') {
+    if (targetElement.type === 'frame' || targetElement.type === 'component') {
       setDropTargetId(targetElement.id);
       setDropPosition('inside');
     } else {
@@ -136,7 +153,7 @@ export const LeftSidebar: React.FC = () => {
       return;
     }
 
-    if (targetElement.type === 'frame' && dropPosition === 'inside') {
+    if ((targetElement.type === 'frame' || targetElement.type === 'component') && dropPosition === 'inside') {
       // Nest dragged shape into this frame
       reparentLayer(draggedId, targetElement.id);
     } else {
@@ -160,87 +177,13 @@ export const LeftSidebar: React.FC = () => {
     setDropPosition(null);
   };
 
-  // Sample UI Component Assets to spawn onto canvas
-  const assetComponents = [
-    {
-      id: 'asset-button-primary',
-      name: 'Primary Action Button',
-      type: 'rectangle' as ShapeType,
-      width: 240,
-      height: 48,
-      fill: '#0d99ff',
-      fillOpacity: 1,
-      cornerRadius: 12,
-    },
-    {
-      id: 'asset-card',
-      name: 'Glass Container Card',
-      type: 'rectangle' as ShapeType,
-      width: 320,
-      height: 160,
-      fill: '#ffffff',
-      fillOpacity: 1,
-      cornerRadius: 16,
-    },
-    {
-      id: 'asset-avatar',
-      name: 'Profile Avatar',
-      type: 'ellipse' as ShapeType,
-      width: 48,
-      height: 48,
-      fill: '#6366f1',
-      fillOpacity: 1,
-      cornerRadius: 0,
-    },
-    {
-      id: 'asset-tag',
-      name: 'Pill Badge',
-      type: 'rectangle' as ShapeType,
-      width: 100,
-      height: 28,
-      fill: '#e0f2fe',
-      fillOpacity: 1,
-      cornerRadius: 14,
-    },
-  ];
-
-  const spawnAsset = (asset: typeof assetComponents[0]) => {
-    const activeFrame = elements.find((el) => el.type === 'frame');
-    const posX = activeFrame ? 24 : 120;
-    const posY = activeFrame ? 24 : 120;
-
-    const newEl: CanvasElement = {
-      id: `asset-${Date.now()}`,
-      name: asset.name,
-      type: asset.type,
-      x: posX,
-      y: posY,
-      width: asset.width,
-      height: asset.height,
-      rotation: 0,
-      fill: asset.fill,
-      fillOpacity: asset.fillOpacity,
-      stroke: '#cbd5e1',
-      strokeWidth: asset.fill === '#ffffff' ? 1 : 0,
-      strokeOpacity: 1,
-      strokeStyle: 'solid',
-      strokeAlign: 'inside',
-      cornerRadius: asset.cornerRadius,
-      individualCorners: false,
-      opacity: 1,
-      visible: true,
-      locked: false,
-      parentId: activeFrame ? activeFrame.id : null,
-    };
-    addElement(newEl);
-  };
-
   const renderLayerItem = (el: CanvasElement, depth = 0) => {
     const isSelected = selectedIds.includes(el.id);
     const isEditing = editingId === el.id;
-    const isFrame = el.type === 'frame';
+    const isFrame = ['frame', 'component', 'instance'].includes(el.type);
     const isCollapsed = collapsedFrames[el.id];
     const isDropTarget = dropTargetId === el.id;
+    const availableParent = frames.find((frame) => frame.id !== el.id);
 
     const children = elements.filter((child) => child.parentId === el.id);
 
@@ -395,15 +338,15 @@ export const LeftSidebar: React.FC = () => {
               </button>
             )}
 
-            {!el.parentId && frames.length > 0 && el.type !== 'frame' && (
+            {!el.parentId && availableParent && el.type !== 'frame' && (
               <button
                 onClick={() => {
-                  reparentLayer(el.id, frames[0].id);
+                  reparentLayer(el.id, availableParent.id);
                   setContextMenuId(null);
                 }}
                 className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#0d99ff] hover:text-white cursor-pointer"
               >
-                <FolderInput size={13} /> Move into {frames[0].name}
+                <FolderInput size={13} /> Move into {availableParent.name}
               </button>
             )}
 
@@ -567,79 +510,114 @@ export const LeftSidebar: React.FC = () => {
         )}
 
         {activeLeftTab === 'assets' && (
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
-            <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-              Component Library
-            </div>
-            <div className="space-y-2">
-              {assetComponents.map((asset) => (
+          <div className="flex-1 overflow-y-auto p-3 space-y-5 custom-scrollbar">
+            <section className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  Local components
+                </div>
                 <button
-                  key={asset.id}
-                  onClick={() => spawnAsset(asset)}
-                  className="w-full text-left p-2.5 rounded-xl border border-[#e2e8f0] bg-white hover:border-[#0d99ff] hover:shadow-sm transition-all flex items-center justify-between group cursor-pointer"
+                  onClick={createComponentFromSelection}
+                  disabled={selectedIds.length === 0}
+                  title="Create component (Ctrl+Alt+K)"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-[#9747ff] hover:bg-[#f5edff] disabled:opacity-30"
                 >
-                  <div>
-                    <div className="text-xs font-semibold text-gray-800 group-hover:text-[#0d99ff]">
-                      {asset.name}
-                    </div>
-                    <div className="text-[10px] text-gray-400 font-mono mt-0.5">
-                      {asset.width} × {asset.height}
-                    </div>
-                  </div>
-                  <div className="w-6 h-6 rounded-lg bg-[#f1f5f9] group-hover:bg-[#0d99ff] group-hover:text-white flex items-center justify-center text-gray-500 transition-colors">
-                    <Plus size={13} />
-                  </div>
+                  <Plus size={13} />
                 </button>
-              ))}
-            </div>
+              </div>
+
+              {localComponents.length === 0 ? (
+                <button
+                  onClick={createComponentFromSelection}
+                  disabled={selectedIds.length === 0}
+                  className="w-full rounded-xl border border-dashed border-[#cdb7ec] bg-[#fbf8ff] p-3 text-left disabled:opacity-60"
+                >
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[#6f35b5]">
+                    <Component size={14} /> Create your first component
+                  </div>
+                  <p className="mt-1 text-[10px] leading-relaxed text-[#8a759f]">
+                    Select a frame or layers, then use Ctrl+Alt+K.
+                  </p>
+                </button>
+              ) : (
+                <div className="space-y-1.5">
+                  {localComponents.map((component) => (
+                    <button
+                      key={component.id}
+                      onClick={() => createInstance(component.id)}
+                      className="group flex w-full items-center gap-2.5 rounded-xl border border-[#e5d8f5] bg-white p-2 text-left hover:border-[#9747ff] hover:bg-[#fbf8ff]"
+                    >
+                      <div className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-[#f3e8ff] text-[#9747ff]">◆</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-semibold text-gray-800">{component.name}</div>
+                        <div className="text-[10px] text-gray-400">{Math.round(component.width)} × {Math.round(component.height)}</div>
+                      </div>
+                      <Plus size={13} className="text-[#9747ff] opacity-60 group-hover:opacity-100" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                <LayoutTemplate size={13} /> Figmint starter kit
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {STARTER_COMPONENTS.map((asset) => (
+                  <button
+                    key={asset.kind}
+                    onClick={() => insertStarterComponent(asset.kind)}
+                    className="group min-h-20 rounded-xl border border-[#e2e8f0] bg-[#fafbfc] p-2 text-left hover:border-[#0d99ff] hover:bg-white hover:shadow-sm"
+                  >
+                    <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-white text-[#0d99ff] shadow-xs ring-1 ring-[#e2e8f0] group-hover:bg-[#0d99ff] group-hover:text-white">
+                      <Component size={13} />
+                    </div>
+                    <div className="text-[11px] font-semibold leading-tight text-gray-800">{asset.name}</div>
+                    <div className="mt-0.5 text-[9px] leading-tight text-gray-400">{asset.description}</div>
+                  </button>
+                ))}
+              </div>
+            </section>
           </div>
         )}
 
         {activeLeftTab === 'variables' && (
           <div className="flex-1 overflow-y-auto p-3 space-y-4 custom-scrollbar text-xs">
-            <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-              Design Tokens
+            <div>
+              <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Design tokens</div>
+              <p className="mt-1 text-[10px] leading-relaxed text-gray-400">Bound values update everywhere, including exports.</p>
             </div>
 
-            <div>
-              <div className="font-semibold text-gray-700 mb-1.5">Color Tokens</div>
-              <div className="space-y-1.5">
-                {[
-                  { name: 'Primary / Brand', color: '#0d99ff' },
-                  { name: 'Background / Canvas', color: '#f5f5f5' },
-                  { name: 'Surface / Card', color: '#ffffff' },
-                  { name: 'Text / Primary', color: '#111111' },
-                ].map((token) => (
-                  <div
-                    key={token.name}
-                    className="flex items-center justify-between p-1.5 rounded-lg bg-[#f8fafc] border border-[#e2e8f0]"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-4 h-4 rounded border border-black/10"
-                        style={{ backgroundColor: token.color }}
-                      />
-                      <span className="text-[11px] text-gray-700 font-medium">{token.name}</span>
+            {(['color', 'spacing', 'radius'] as const).map((category) => {
+              const categoryTokens = tokens.filter((token) => token.category === category);
+              const Icon = category === 'color' ? Palette : category === 'radius' ? Radius : MoveHorizontal;
+              return (
+                <section key={category} className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-semibold capitalize text-gray-700"><Icon size={13} />{category}</div>
+                    <button onClick={() => addToken(category)} aria-label={`Add ${category} token`} className="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 hover:bg-[#e5f2ff] hover:text-[#0d99ff]"><Plus size={13} /></button>
+                  </div>
+                  {categoryTokens.map((token) => (
+                    <div key={token.id} className="group rounded-xl border border-[#e2e8f0] bg-[#fafbfc] p-2">
+                      <div className="flex items-center gap-1.5">
+                        {category === 'color' && <input type="color" value={String(token.value)} onChange={(event) => updateToken(token.id, { value: event.target.value })} className="h-6 w-6 cursor-pointer rounded border-0 bg-transparent p-0" aria-label={`${token.name} color`} />}
+                        <input value={token.name} onChange={(event) => updateToken(token.id, { name: event.target.value })} className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-gray-700 outline-none focus:text-[#0d99ff]" aria-label={`${token.name} name`} />
+                        <button onClick={() => deleteToken(token.id)} aria-label={`Delete ${token.name}`} className="text-gray-300 opacity-0 hover:text-red-500 group-hover:opacity-100"><Trash2 size={12} /></button>
+                      </div>
+                      {category === 'color' ? (
+                        <input value={String(token.value)} onChange={(event) => updateToken(token.id, { value: event.target.value })} className="mt-1 w-full rounded-md bg-white px-1.5 py-1 font-mono text-[10px] uppercase text-gray-500 ring-1 ring-inset ring-[#e2e8f0] outline-none focus:ring-[#0d99ff]" aria-label={`${token.name} value`} />
+                      ) : (
+                        <label className="mt-1 flex items-center rounded-md bg-white px-1.5 py-1 ring-1 ring-inset ring-[#e2e8f0] focus-within:ring-[#0d99ff]">
+                          <input type="number" min="0" value={Number(token.value)} onChange={(event) => updateToken(token.id, { value: Math.max(0, Number(event.target.value)) })} className="w-full bg-transparent font-mono text-[10px] text-gray-600 outline-none" aria-label={`${token.name} value`} />
+                          <span className="text-[9px] text-gray-400">px</span>
+                        </label>
+                      )}
                     </div>
-                    <span className="text-[10px] text-gray-400 font-mono">{token.color}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="font-semibold text-gray-700 mb-1.5">Corner Radius</div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {['sm (4px)', 'md (8px)', 'lg (16px)'].map((r) => (
-                  <div
-                    key={r}
-                    className="p-1.5 rounded bg-[#f8fafc] border border-[#e2e8f0] text-center text-[10px] text-gray-600 font-mono"
-                  >
-                    {r}
-                  </div>
-                ))}
-              </div>
-            </div>
+                  ))}
+                </section>
+              );
+            })}
           </div>
         )}
       </div>

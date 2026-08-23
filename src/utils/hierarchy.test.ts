@@ -60,15 +60,19 @@ test('reparenting preserves visual world position', () => {
   });
 });
 
-test('frames stay root containers and invalid nesting is rejected', () => {
+test('containers can nest while circular and instance nesting is rejected', () => {
   const frame = element('frame', 'frame', 0, 0);
   const otherFrame = element('other-frame', 'frame', 200, 0);
   const shape = element('shape', 'rectangle', 20, 20, frame.id);
-  const elements = [frame, otherFrame, shape];
+  const instance = element('instance', 'instance', 400, 0);
+  const elements = [frame, otherFrame, shape, instance];
 
-  assert.equal(canReparentElement(frame, otherFrame.id, elements), false);
+  assert.equal(canReparentElement(frame, otherFrame.id, elements), true);
   assert.equal(canReparentElement(shape, otherFrame.id, elements), true);
   assert.equal(canReparentElement(shape, shape.id, elements), false);
+  assert.equal(canReparentElement(shape, instance.id, elements), false);
+  const nested = [{ ...frame }, { ...otherFrame, parentId: frame.id }, shape, instance];
+  assert.equal(canReparentElement(frame, otherFrame.id, nested), false);
 });
 
 test('selection normalization and descendant traversal are cycle safe', () => {
@@ -83,7 +87,7 @@ test('selection normalization and descendant traversal are cycle safe', () => {
   assert.doesNotThrow(() => getWorldPosition(malformedA, elements));
 });
 
-test('frame hit testing returns the topmost unlocked root frame', () => {
+test('frame hit testing returns the topmost unlocked container', () => {
   const back = element('back', 'frame', 0, 0);
   const front = element('front', 'frame', 20, 20);
   assert.equal(findFrameAtPoint({ x: 30, y: 30 }, [back, front])?.id, 'front');

@@ -14,8 +14,13 @@ import {
   CheckCircle2,
   LoaderCircle,
   AlertTriangle,
+  Github,
+  Info,
+  ExternalLink,
+  X,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
+import { FigmintLogo } from './FigmintLogo';
 
 interface NavbarProps {
   onOpenShortcuts: () => void;
@@ -48,12 +53,22 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [isZoomMenuOpen, setIsZoomMenuOpen] = useState(false);
   const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
 
   useEffect(() => {
     if (currentProject) {
       setTempName(currentProject.title);
     }
   }, [currentProject?.title]);
+
+  useEffect(() => {
+    if (!isAboutOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsAboutOpen(false);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isAboutOpen]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const zoomMenuRef = useRef<HTMLDivElement>(null);
@@ -91,6 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
   };
 
   return (
+    <>
     <header
       id="figma-navbar"
       className="h-11 flex-none bg-white border-b border-[#e6e6e6] flex items-center justify-between px-2 sm:px-3 text-[#333333] z-40 select-none gap-1"
@@ -107,36 +123,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
           <span className="hidden sm:inline">Files</span>
         </button>
 
-        {/* Figma Multi-color Logo Button */}
+        {/* Figmint brand and main menu */}
         <div className="relative" ref={mainMenuRef}>
           <button
             onClick={() => setIsMainMenuOpen(!isMainMenuOpen)}
             title="Main Menu"
             className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#f1f5f9] transition-colors cursor-pointer"
           >
-            {/* Authentic Figma Logo Shapes */}
-            <svg width="18" height="26" viewBox="0 0 38 57" fill="none" className="w-4 h-5">
-              <path
-                d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z"
-                fill="#1ABCFE"
-              />
-              <path
-                d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z"
-                fill="#0ACF83"
-              />
-              <path
-                d="M19 0V19H28.5C33.7467 19 38 14.7467 38 9.5C38 4.25329 33.7467 0 28.5 0H19Z"
-                fill="#FF7262"
-              />
-              <path
-                d="M0 9.5C0 14.7467 4.25329 19 9.5 19H19V0H9.5C4.25329 0 0 4.25329 0 9.5Z"
-                fill="#F24E1E"
-              />
-              <path
-                d="M0 28.5C0 33.7467 4.25329 38 9.5 38H19V19H9.5C4.25329 19 0 23.2533 0 28.5Z"
-                fill="#A259FF"
-              />
-            </svg>
+            <FigmintLogo size={20} />
           </button>
 
           {/* Main Menu Dropdown */}
@@ -232,6 +226,26 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
                 <HelpCircle size={14} />
                 <span>Keyboard Shortcuts (Cmd+/)</span>
               </button>
+              <button
+                onClick={() => {
+                  setIsAboutOpen(true);
+                  setIsMainMenuOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <Info size={14} />
+                <span>About Figmint</span>
+              </button>
+              <a
+                href="https://github.com/Moii-gh/Figmint"
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setIsMainMenuOpen(false)}
+                className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-[#0d99ff] hover:text-white transition-colors cursor-pointer"
+              >
+                <span className="flex items-center gap-2.5"><Github size={14} /> GitHub repository</span>
+                <ExternalLink size={12} />
+              </a>
             </div>
           )}
         </div>
@@ -442,5 +456,27 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenShortcuts, isInspectorOpen
         </button>
       </div>
     </header>
+    {isAboutOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/35 p-4 backdrop-blur-xs" onPointerDown={(event) => { if (event.target === event.currentTarget) setIsAboutOpen(false); }}>
+        <div role="dialog" aria-modal="true" aria-labelledby="about-figmint-title" className="w-full max-w-md overflow-hidden rounded-2xl border border-[#dfe5ec] bg-white shadow-2xl">
+          <div className="flex items-start justify-between border-b border-[#e6e6e6] p-5">
+            <div className="flex items-center gap-3">
+              <FigmintLogo size={42} />
+              <div><h2 id="about-figmint-title" className="text-base font-bold text-gray-900">Figmint Open Studio</h2><p className="text-[11px] text-gray-500">Figma-inspired independent design editor</p></div>
+            </div>
+            <button onClick={() => setIsAboutOpen(false)} aria-label="Close about dialog" className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"><X size={17} /></button>
+          </div>
+          <div className="space-y-4 p-5">
+            <p className="text-sm leading-relaxed text-gray-600">Create vector interfaces with reusable components, Auto Layout and design tokens. Your projects stay in this browser and no account is required.</p>
+            <div className="grid grid-cols-3 gap-2">
+              {['Free', 'Open source', 'Local-first'].map((label) => <div key={label} className="rounded-xl bg-[#f4f8fb] px-2 py-2 text-center text-[10px] font-bold text-[#3f5368] ring-1 ring-inset ring-[#e1e8ef]">{label}</div>)}
+            </div>
+            <a href="https://github.com/Moii-gh/Figmint" target="_blank" rel="noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111827] px-4 py-2.5 text-xs font-semibold text-white hover:bg-black"><Github size={15} /> View source on GitHub <ExternalLink size={12} /></a>
+            <p className="text-center text-[10px] text-gray-400">MIT licensed · Independent project · Not affiliated with Figma</p>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };

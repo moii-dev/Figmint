@@ -15,13 +15,17 @@ import {
   Layers,
   ChevronRight,
   SlidersHorizontal,
+  Github,
+  ExternalLink,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
-import { CanvasElement } from '../types/figma';
+import { CanvasElement, DesignToken } from '../types/figma';
 import { hexToRgba, getTrianglePoints } from '../utils/geometry';
 import { getWorldRect } from '../utils/hierarchy';
 import { SvgGradientDefs } from './SvgGradientDefs';
 import { getSvgGradientId, getVisibleGradients } from '../utils/gradient';
+import { resolveElementTokens } from '../utils/tokens';
+import { FigmintLogo } from './FigmintLogo';
 
 export const Dashboard: React.FC = () => {
   const {
@@ -67,7 +71,7 @@ export const Dashboard: React.FC = () => {
   };
 
   // Render a live mini thumbnail of project elements
-  const renderThumbnail = (elements: CanvasElement[]) => {
+  const renderThumbnail = (elements: CanvasElement[], tokens: DesignToken[] = []) => {
     if (!elements || elements.length === 0) {
       return (
         <div className="w-full h-full flex flex-col items-center justify-center bg-[#f8fafc] text-gray-400">
@@ -78,7 +82,8 @@ export const Dashboard: React.FC = () => {
     }
 
     // Find main frame or bounds
-    const mainFrame = elements.find((el) => el.type === 'frame') || elements[0];
+    const renderedElements = elements.map((element) => resolveElementTokens(element, tokens));
+    const mainFrame = renderedElements.find((el) => el.type === 'frame') || renderedElements[0];
     const frameW = mainFrame.width || 400;
     const frameH = mainFrame.height || 600;
     const padding = 20;
@@ -89,7 +94,7 @@ export const Dashboard: React.FC = () => {
           viewBox={`${mainFrame.x - padding} ${mainFrame.y - padding} ${frameW + padding * 2} ${frameH + padding * 2}`}
           className="w-full h-full max-h-[160px] object-contain drop-shadow-sm pointer-events-none"
         >
-          {elements.map((el) => {
+          {renderedElements.map((el) => {
             if (!el.visible) return null;
             const fillStyle = hexToRgba(el.fill, el.fillOpacity);
             const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'none';
@@ -103,11 +108,11 @@ export const Dashboard: React.FC = () => {
               })),
             ];
 
-            const worldRect = getWorldRect(el, elements);
+            const worldRect = getWorldRect(el, renderedElements);
             const posX = worldRect.x;
             const posY = worldRect.y;
 
-            if (el.type === 'frame' || el.type === 'rectangle') {
+            if (['frame', 'rectangle', 'component', 'instance'].includes(el.type)) {
               return (
                 <g key={el.id} opacity={el.opacity}>
                   <SvgGradientDefs element={el} prefix="dashboard" />
@@ -212,18 +217,9 @@ export const Dashboard: React.FC = () => {
         {/* User / Workspace Header */}
         <div className="p-4 border-b border-[#e2e8f0] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            {/* Authentic Figma Logo */}
-            <div className="w-8 h-8 rounded-lg bg-black/5 flex items-center justify-center p-1.5">
-              <svg viewBox="0 0 38 57" fill="none" className="w-4 h-6">
-                <path d="M19 28.5C19 23.2533 23.2533 19 28.5 19C33.7467 19 38 23.2533 38 28.5C38 33.7467 33.7467 38 28.5 38C23.2533 38 19 33.7467 19 28.5Z" fill="#1ABCFE"/>
-                <path d="M0 47.5C0 42.2533 4.25329 38 9.5 38H19V47.5C19 52.7467 14.7467 57 9.5 57C4.25329 57 0 52.7467 0 47.5Z" fill="#0ACF83"/>
-                <path d="M19 0V19H28.5C33.7467 19 38 14.7467 38 9.5C38 4.25329 33.7467 0 28.5 0H19Z" fill="#FF7262"/>
-                <path d="M0 9.5C0 14.7467 4.25329 19 9.5 19H19V0H9.5C4.25329 0 0 4.25329 0 9.5Z" fill="#F24E1E"/>
-                <path d="M0 28.5C0 33.7467 4.25329 38 9.5 38H19V19H9.5C4.25329 19 0 23.2533 0 28.5Z" fill="#A259FF"/>
-              </svg>
-            </div>
+            <FigmintLogo size={32} />
             <div>
-              <div className="text-xs font-bold text-gray-900 leading-tight">My Workspace</div>
+              <div className="text-xs font-bold text-gray-900 leading-tight">Figmint Open Studio</div>
               <div className="text-[11px] text-gray-500">
                 Local Workspace • {projects.length} {projects.length === 1 ? 'file' : 'files'}
               </div>
@@ -360,6 +356,23 @@ export const Dashboard: React.FC = () => {
 
         {/* Content Body */}
         <div className="p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
+          <section className="relative overflow-hidden rounded-2xl bg-[#111827] px-5 py-5 text-white shadow-lg sm:px-7">
+            <div className="absolute -right-10 -top-20 h-48 w-48 rounded-full bg-[#0d99ff]/20 blur-3xl" />
+            <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3.5">
+                <FigmintLogo size={44} className="flex-none" />
+                <div>
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {['Free', 'Open source', 'Local-first'].map((label) => <span key={label} className="rounded-full border border-white/10 bg-white/8 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#b8c7d9]">{label}</span>)}
+                  </div>
+                  <h1 className="text-lg font-bold sm:text-xl">Design freely. Keep every file yours.</h1>
+                  <p className="mt-1 max-w-xl text-xs leading-relaxed text-[#a9b8c9]">A Figma-inspired independent editor with reusable components, Auto Layout and real design tokens — running entirely in your browser.</p>
+                </div>
+              </div>
+              <a href="https://github.com/Moii-gh/Figmint" target="_blank" rel="noreferrer" className="flex flex-none items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#111827] hover:bg-[#e9f7f2]"><Github size={15} /> Source code <ExternalLink size={12} /></a>
+            </div>
+          </section>
+
           {/* Header row */}
           <div className="flex items-center justify-between">
             <div>
@@ -418,7 +431,7 @@ export const Dashboard: React.FC = () => {
                       aria-label={`Open ${project.title}`}
                       className="flex-1 w-full relative bg-[#f1f5f9] border-b border-[#e2e8f0] overflow-hidden text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0d99ff]"
                     >
-                      {renderThumbnail(project.elements)}
+                      {renderThumbnail(project.elements, project.tokens)}
 
                       {/* Hover Open Overlay */}
                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">

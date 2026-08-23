@@ -151,3 +151,25 @@ test('SVG export supports polygon, diamond, arrow, and embedded images', () => {
   assert.match(svg, /<line[^>]+x2="142"/);
   assert.match(svg, /<image href="data:image\/png;base64,abc"/);
 });
+
+test('SVG export renders component containers with resolved design tokens', () => {
+  const component: CanvasElement = {
+    ...element('component', 'component', 0, 0),
+    width: 160,
+    height: 44,
+    fill: '#000000',
+    cornerRadius: 0,
+    tokenBindings: { fill: 'brand', cornerRadius: 'radius' },
+  };
+  const svg = generateSvgString(
+    [component],
+    [component],
+    undefined,
+    [
+      { id: 'brand', name: 'Brand', category: 'color', value: '#0d99ff' },
+      { id: 'radius', name: 'Radius', category: 'radius', value: 12 },
+    ]
+  );
+  assert.match(svg, /<rect[^>]+rx="12"/);
+  assert.match(svg, /fill="rgba\(13, 153, 255, 1\)"/);
+});

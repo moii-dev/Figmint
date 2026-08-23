@@ -57,6 +57,8 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
         { key: 'Ctrl/Cmd + D', desc: 'Duplicate Selected Layer' },
         { key: 'Ctrl/Cmd + C / V', desc: 'Copy / Paste Layers' },
         { key: 'Ctrl/Cmd + Shift + K', desc: 'Insert Image or Video' },
+        { key: 'Ctrl/Cmd + Alt + K', desc: 'Create Component' },
+        { key: 'Shift + A', desc: 'Wrap in Auto Layout' },
         { key: 'Ctrl/Cmd + Z', desc: 'Undo' },
         { key: 'Ctrl/Cmd + Y', desc: 'Redo' },
         { key: 'Delete / Backspace', desc: 'Delete Selected Layer' },

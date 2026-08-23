@@ -55,8 +55,7 @@ export function findFrameAtPoint(
   const ignoreSet = new Set(ignoreIds);
   const frames = allElements.filter(
     (el) =>
-      el.type === 'frame' &&
-      !el.parentId &&
+      (el.type === 'frame' || el.type === 'component') &&
       el.visible &&
       !el.locked &&
       !ignoreSet.has(el.id)
@@ -165,17 +164,17 @@ export function getTopLevelSelectionIds(
   });
 }
 
-/** Frames are root containers in Figmint; other elements may move between them. */
+/** Frames and components are containers; circular nesting and instance structural edits are rejected. */
 export function canReparentElement(
   element: CanvasElement,
   newParentId: string | null,
   allElements: CanvasElement[]
 ): boolean {
   if (!newParentId) return true;
-  if (element.type === 'frame' || element.id === newParentId) return false;
+  if (element.id === newParentId) return false;
 
   const parent = allElements.find((el) => el.id === newParentId);
-  if (!parent || parent.type !== 'frame' || parent.parentId) return false;
+  if (!parent || !['frame', 'component'].includes(parent.type)) return false;
 
   return !isAncestor(element.id, newParentId, allElements);
 }

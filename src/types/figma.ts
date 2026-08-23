@@ -10,7 +10,9 @@ export type ShapeType =
   | 'line'
   | 'arrow'
   | 'image'
-  | 'video';
+  | 'video'
+  | 'component'
+  | 'instance';
 
 export type ToolType =
   | 'select'
@@ -63,6 +65,37 @@ export interface LinearGradientFill {
   stops: GradientStop[];
 }
 
+export type LayoutMode = 'none' | 'horizontal' | 'vertical';
+export type LayoutSizing = 'fixed' | 'hug' | 'fill';
+export type LayoutAlign = 'start' | 'center' | 'end' | 'space-between';
+export type LayoutCounterAlign = 'start' | 'center' | 'end' | 'stretch';
+
+export interface LayoutPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export interface InstanceOverride {
+  textContent?: string;
+  fill?: string;
+  fillOpacity?: number;
+  visible?: boolean;
+}
+
+export type DesignTokenCategory = 'color' | 'spacing' | 'radius';
+
+export interface DesignToken {
+  id: string;
+  name: string;
+  category: DesignTokenCategory;
+  value: string | number;
+}
+
+export type TokenBindableProperty = 'fill' | 'stroke' | 'cornerRadius' | 'layoutGap';
+export type ElementTokenBindings = Partial<Record<TokenBindableProperty, string>>;
+
 export interface CanvasElement {
   id: string;
   name: string;
@@ -103,6 +136,23 @@ export interface CanvasElement {
   mediaMimeType?: string;
   mediaName?: string;
   objectFit?: 'cover' | 'contain' | 'fill';
+  // Component and instance metadata
+  mainComponentId?: string;
+  sourceElementId?: string;
+  instanceOverrides?: Record<string, InstanceOverride>;
+  // Auto Layout container properties
+  layoutMode?: LayoutMode;
+  layoutGap?: number;
+  layoutPadding?: LayoutPadding;
+  layoutPrimaryAlign?: LayoutAlign;
+  layoutCounterAlign?: LayoutCounterAlign;
+  layoutSizingHorizontal?: LayoutSizing;
+  layoutSizingVertical?: LayoutSizing;
+  // Auto Layout child properties
+  layoutPositioning?: 'auto' | 'absolute';
+  layoutGrow?: 0 | 1;
+  // Design token bindings
+  tokenBindings?: ElementTokenBindings;
 }
 
 export interface FigmaProject {
@@ -114,6 +164,7 @@ export interface FigmaProject {
   zoom: number;
   pan: { x: number; y: number };
   thumbnailSvg?: string;
+  tokens?: DesignToken[];
 }
 
 export interface DevicePreset {

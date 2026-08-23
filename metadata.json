@@ -1,6 +1,6 @@
 {
-  "name": "Figma Canvas Clone",
-  "description": "Modern web-based Figma vector design tool with infinite canvas, device presets, shape creation, layers, and property inspector.",
+  "name": "Figmint Open Studio",
+  "description": "Free, open-source, local-first vector design editor with components, Auto Layout, design tokens, and an infinite canvas.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

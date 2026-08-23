@@ -1,4 +1,4 @@
-import { CanvasElement, Point, Rect, SnapGuide } from '../types/figma';
+import { CanvasElement, DesignToken, Point, Rect, SnapGuide } from '../types/figma';
 import { getTopLevelSelectionIds, getWorldRect } from './hierarchy';
 import {
   getSvgGradientCoordinates,
@@ -6,6 +6,7 @@ import {
   getRenderableGradientStops,
   getVisibleGradients,
 } from './gradient';
+import { resolveElementTokens } from './tokens';
 
 /**
  * Generates an SVG path or points for shapes
@@ -143,7 +144,7 @@ export function getMarqueeSelectionIds(box: Rect, elements: CanvasElement[]): st
 
   const hierarchyAwareIds = candidates
     .filter((element) => {
-      if (element.type !== 'frame') return true;
+      if (!['frame', 'component', 'instance'].includes(element.type)) return true;
       const frameRect = getWorldRect(element, elements);
       const hasSelectedChild = elements.some(
         (child) => child.parentId === element.id && candidateIds.has(child.id)
@@ -289,11 +290,14 @@ function escapeXml(value: string): string {
 export function generateSvgString(
   elements: CanvasElement[],
   allElements: CanvasElement[] = elements,
-  targetBox?: Rect
+  targetBox?: Rect,
+  tokens: DesignToken[] = []
 ): string {
-  const worldRects = elements
+  const resolvedElements = elements.map((element) => resolveElementTokens(element, tokens));
+  const resolvedAllElements = allElements.map((element) => resolveElementTokens(element, tokens));
+  const worldRects = resolvedElements
     .filter((element) => element.visible)
-    .map((element) => getWorldRect(element, allElements));
+    .map((element) => getWorldRect(element, resolvedAllElements));
   const box = targetBox || getBoundingBoxFromRects(worldRects) || { x: 0, y: 0, width: 800, height: 600 };
   const padding = 20;
   const viewBox = `${box.x - padding} ${box.y - padding} ${box.width + padding * 2} ${box.height + padding * 2}`;
@@ -301,9 +305,9 @@ export function generateSvgString(
   let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${box.width + padding * 2}" height="${box.height + padding * 2}">\n`;
   svgContent += `<style>text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }</style>\n`;
 
-  for (const el of elements) {
+  for (const el of resolvedElements) {
     if (!el.visible) continue;
-    const worldRect = getWorldRect(el, allElements);
+    const worldRect = getWorldRect(el, resolvedAllElements);
     const { x, y, width, height } = worldRect;
     const fillStyle = hexToRgba(el.fill, el.fillOpacity);
     const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'none';
@@ -334,7 +338,7 @@ export function generateSvgString(
       const strokeWidth = outline ? el.strokeWidth : 0;
       const dash = outline ? strokeDash : '';
 
-      if (el.type === 'frame' || el.type === 'rectangle') {
+      if (['frame', 'rectangle', 'component', 'instance'].includes(el.type)) {
         const rx = el.cornerRadius || 0;
         return `  <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} ${transform} ${opacityAttr} />\n`;
       }
