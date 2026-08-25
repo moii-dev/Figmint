@@ -16,7 +16,9 @@ import {
   DesignToken,
   DesignTokenCategory,
   TokenBindableProperty,
+  PrototypeInteraction,
 } from '../types/figma';
+import { clampPrototypeDuration } from '../utils/prototype';
 import {
   INITIAL_PROJECTS,
   SAMPLE_BANKING_ELEMENTS,
@@ -29,6 +31,7 @@ import {
 } from '../utils/clipboard';
 import {
   getBoundingBox,
+  getBoundingBoxFromRects,
   generateSvgString,
   downloadFile,
   downloadPngFromSvg,
@@ -80,6 +83,8 @@ const IMPORTABLE_TYPES = new Set([
   'arrow',
   'image',
   'video',
+  'vector',
+  'boolean',
   'component',
   'instance',
 ]);
@@ -126,6 +131,13 @@ function cloneElementTree(
             Object.entries(element.instanceOverrides).map(([sourceId, value]) => [idMap.get(sourceId) || sourceId, value])
           )
         : undefined,
+      interactions: element.interactions?.map((interaction) => ({
+        ...interaction,
+        id: `interaction-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        destinationFrameId: interaction.destinationFrameId
+          ? idMap.get(interaction.destinationFrameId) || interaction.destinationFrameId
+          : undefined,
+      })),
       x: shouldOffset ? element.x + offset : element.x,
       y: shouldOffset ? element.y + offset : element.y,
     };
@@ -246,6 +258,48 @@ function normalizeImportedElements(value: unknown): CanvasElement[] | null {
       visible: raw.visible !== false,
       locked: raw.locked === true,
       parentId: typeof raw.parentId === 'string' ? raw.parentId : null,
+      prototypeFlowStart: raw.prototypeFlowStart === true,
+      interactions: Array.isArray(raw.interactions)
+        ? raw.interactions.flatMap((item) => {
+            if (!item || typeof item !== 'object') return [];
+            const interaction = item as Partial<PrototypeInteraction>;
+            if (typeof interaction.id !== 'string') return [];
+            const action = ['navigate-to', 'back', 'open-overlay', 'close-overlay'].includes(interaction.action || '')
+              ? interaction.action as PrototypeInteraction['action']
+              : 'navigate-to';
+            const transition = ['instant', 'dissolve', 'move', 'push', 'smart-animate'].includes(interaction.transition || '')
+              ? interaction.transition as PrototypeInteraction['transition']
+              : 'smart-animate';
+            return [{
+              id: interaction.id,
+              trigger: 'click' as const,
+              action,
+              destinationFrameId: typeof interaction.destinationFrameId === 'string' ? interaction.destinationFrameId : undefined,
+              transition,
+              direction: ['left', 'right', 'up', 'down'].includes(interaction.direction || '')
+                ? interaction.direction as PrototypeInteraction['direction']
+                : 'left',
+              easing: ['linear', 'ease-in', 'ease-out', 'ease-in-out'].includes(interaction.easing || '')
+                ? interaction.easing as PrototypeInteraction['easing']
+                : 'ease-in-out',
+              durationMs: clampPrototypeDuration(Number(interaction.durationMs)),
+            }];
+          })
+        : undefined,
+      imageFill: raw.imageFill && typeof raw.imageFill.src === 'string'
+        ? {
+            assetId: typeof raw.imageFill.assetId === 'string' ? raw.imageFill.assetId : `legacy-${raw.id}`,
+            src: raw.imageFill.src,
+            mimeType: raw.imageFill.mimeType,
+            name: raw.imageFill.name,
+            mode: ['fill', 'fit', 'crop', 'tile'].includes(raw.imageFill.mode) ? raw.imageFill.mode : 'fill',
+            offsetX: Number.isFinite(raw.imageFill.offsetX) ? Number(raw.imageFill.offsetX) : 0,
+            offsetY: Number.isFinite(raw.imageFill.offsetY) ? Number(raw.imageFill.offsetY) : 0,
+            scale: Number.isFinite(raw.imageFill.scale) ? Math.max(0.01, Number(raw.imageFill.scale)) : 1,
+            rotation: Number.isFinite(raw.imageFill.rotation) ? Number(raw.imageFill.rotation) : 0,
+            tileScale: Number.isFinite(raw.imageFill.tileScale) ? Math.max(0.01, Number(raw.imageFill.tileScale)) : 1,
+          }
+        : undefined,
     } as CanvasElement);
   }
 
@@ -375,6 +429,9 @@ interface CanvasContextType {
   createInstance: (masterId: string) => void;
   resetInstance: (instanceId: string) => void;
   detachInstance: (instanceId: string) => void;
+  createMaskFromSelection: () => void;
+  createBooleanOperation: (operation: NonNullable<CanvasElement['booleanOperation']>) => void;
+  releaseComposite: (elementId: string) => void;
   goToMainComponent: (instanceId: string) => void;
   wrapSelectionInAutoLayout: () => void;
   insertStarterComponent: (kind: StarterComponentKind) => void;
@@ -382,7 +439,7 @@ interface CanvasContextType {
   duplicateSelected: () => void;
   copySelected: () => void;
   pasteCopied: (serializedPayload?: string) => boolean;
-  importMediaFiles: (files: File[], position?: Point) => Promise<void>;
+  importMediaFiles: (files: File[], position?: Point, targetElementId?: string) => Promise<void>;
   reorderElement: (id: string, targetIndex: number) => void;
   reparentLayer: (elementId: string, newParentId: string | null, targetIndex?: number) => void;
   bringToFront: () => void;
@@ -1174,6 +1231,61 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setSelectedIds([]);
   }, [selectedIds, pushHistory]);
 
+  const createMaskFromSelection = useCallback(() => {
+    if (selectedIds.length !== 2) return;
+    setElements((prev) => {
+      const selected = prev.filter((element) => selectedIds.includes(element.id));
+      const mask = selected.at(-1);
+      const content = selected[0];
+      if (!mask || !content || !['rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'vector'].includes(mask.type)) return prev;
+      const next = prev.map((element) => {
+        if (element.id === mask.id) return { ...element, visible: false };
+        if (element.id === content.id) return { ...element, maskId: mask.id };
+        return element;
+      });
+      pushHistory(next);
+      setSelectedIds([content.id]);
+      return next;
+    });
+  }, [pushHistory, selectedIds]);
+
+  const createBooleanOperation = useCallback((operation: NonNullable<CanvasElement['booleanOperation']>) => {
+    if (selectedIds.length < 2) return;
+    setElements((prev) => {
+      const sources = prev.filter((element) => selectedIds.includes(element.id) && ['rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'vector'].includes(element.type));
+      if (sources.length < 2) return prev;
+      const bounds = getBoundingBoxFromRects(sources.map((source) => getWorldRect(source, prev)))!;
+      const group: CanvasElement = {
+        id: createElementId('boolean'), name: `${operation[0].toUpperCase()}${operation.slice(1)}`,
+        type: 'boolean', x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+        rotation: 0, fill: sources.at(-1)?.fill || '#0d99ff', fillOpacity: 1,
+        stroke: '#000000', strokeWidth: 0, strokeOpacity: 1, strokeStyle: 'solid', strokeAlign: 'inside',
+        cornerRadius: 0, opacity: 1, visible: true, locked: false, parentId: null,
+        booleanOperation: operation, booleanSourceIds: sources.map((source) => source.id),
+      };
+      const next = [...prev.map((element) => selectedIds.includes(element.id) ? { ...element, visible: false } : element), group];
+      pushHistory(next);
+      setSelectedIds([group.id]);
+      return next;
+    });
+  }, [pushHistory, selectedIds]);
+
+  const releaseComposite = useCallback((elementId: string) => {
+    setElements((prev) => {
+      const composite = prev.find((element) => element.id === elementId);
+      if (!composite) return prev;
+      const sourceIds = new Set(composite.booleanSourceIds || (composite.maskId ? [composite.maskId] : []));
+      const next = (composite.booleanSourceIds ? prev.filter((element) => element.id !== elementId) : prev).map((element) => {
+        if (sourceIds.has(element.id)) return { ...element, visible: true };
+        if (element.id === elementId && element.maskId) return { ...element, maskId: undefined };
+        return element;
+      });
+      pushHistory(next);
+      setSelectedIds([...sourceIds]);
+      return next;
+    });
+  }, [pushHistory]);
+
   const duplicateSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
     setElements((prev) => {
@@ -1649,7 +1761,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const element: CanvasElement = {
         id,
         name,
-        type: type as any,
+        type: type === 'pen' ? 'vector' : type as CanvasElement['type'],
         x: point.x,
         y: point.y,
         width: initialSize.width,
@@ -1671,6 +1783,8 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         fontSize: type === 'text' ? 16 : undefined,
         fontWeight: type === 'text' ? 500 : undefined,
         clipContent: type === 'frame' ? true : undefined,
+        vectorPath: type === 'pen' ? [{ x: 0, y: 0 }, { x: 1, y: 1 }] : undefined,
+        vectorClosed: type === 'pen' ? false : undefined,
       };
 
       return element;
@@ -1678,9 +1792,37 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     []
   );
 
-  const importMediaFiles = useCallback(async (files: File[], position?: Point) => {
+  const importMediaFiles = useCallback(async (files: File[], position?: Point, targetElementId?: string) => {
     const supported = files.filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
     if (supported.length === 0) return;
+
+    const imageTargetId = targetElementId || (!position && selectedIds.length === 1 ? selectedIds[0] : undefined);
+    const imageTarget = imageTargetId ? elements.find((element) => element.id === imageTargetId) : undefined;
+    const canUseImageFill = imageTarget
+      && ['rectangle', 'frame', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'component', 'instance'].includes(imageTarget.type)
+      && supported[0].type.startsWith('image/');
+
+    if (canUseImageFill) {
+      const file = supported[0];
+      const src = await fileToDataUrl(file);
+      updateElement(imageTarget.id, {
+        imageFill: {
+          assetId: createElementId('image'),
+          src,
+          mimeType: file.type,
+          name: file.name || 'Pasted image',
+          mode: 'fill',
+          offsetX: 0,
+          offsetY: 0,
+          scale: 1,
+          rotation: 0,
+          tileScale: 1,
+        },
+      });
+      setSelectedIds([imageTarget.id]);
+      setActiveTool('select');
+      return;
+    }
 
     const basePoint = position || {
       x: (viewportSizeRef.current.width / 2 - pan.x) / zoom,
@@ -1731,7 +1873,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
     setSelectedIds(created.map((element) => element.id));
     setActiveTool('select');
-  }, [elements, pan.x, pan.y, pushHistory, zoom]);
+  }, [elements, pan.x, pan.y, pushHistory, selectedIds, updateElement, zoom]);
 
   const undo = useCallback(() => {
     if (historyIndexRef.current > 0) {
@@ -1922,6 +2064,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
+      if (e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setAppMode((mode) => mode === 'design' ? 'prototype' : 'design');
+        return;
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         createComponentFromSelection();
@@ -1931,6 +2079,12 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (e.shiftKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         wrapSelectionInAutoLayout();
+        return;
+      }
+
+      if (e.key === 'Enter' && selectedIds.some((id) => elements.find((element) => element.id === id)?.type === 'vector')) {
+        e.preventDefault();
+        setActiveTool('node');
         return;
       }
 
@@ -1957,6 +2111,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         case 'l':
           setActiveTool(e.shiftKey ? 'arrow' : 'line');
           break;
+        case 'p':
+          setActiveTool('pen');
+          break;
         case 'escape':
           setSelectedIds([]);
           setActiveTool('select');
@@ -1967,7 +2124,7 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, duplicateSelected, copySelected, deleteSelected, selectedIds, pushHistory, setTool, zoomToFit, zoomReset, createComponentFromSelection, wrapSelectionInAutoLayout]);
+  }, [undo, redo, duplicateSelected, copySelected, deleteSelected, elements, selectedIds, pushHistory, setTool, zoomToFit, zoomReset, createComponentFromSelection, wrapSelectionInAutoLayout]);
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
@@ -2059,6 +2216,9 @@ export const CanvasProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         createInstance,
         resetInstance,
         detachInstance,
+        createMaskFromSelection,
+        createBooleanOperation,
+        releaseComposite,
         goToMainComponent,
         wrapSelectionInAutoLayout,
         insertStarterComponent,

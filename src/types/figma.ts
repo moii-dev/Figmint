@@ -11,6 +11,8 @@ export type ShapeType =
   | 'arrow'
   | 'image'
   | 'video'
+  | 'vector'
+  | 'boolean'
   | 'component'
   | 'instance';
 
@@ -26,7 +28,9 @@ export type ToolType =
   | 'star'
   | 'text'
   | 'line'
-  | 'arrow';
+  | 'arrow'
+  | 'pen'
+  | 'node';
 
 export type TransformHandle =
   | 'tl'
@@ -63,6 +67,42 @@ export interface LinearGradientFill {
   opacity: number;
   visible: boolean;
   stops: GradientStop[];
+}
+
+export type PrototypeAction = 'navigate-to' | 'back' | 'open-overlay' | 'close-overlay';
+export type PrototypeTransition = 'instant' | 'dissolve' | 'move' | 'push' | 'smart-animate';
+export type PrototypeDirection = 'left' | 'right' | 'up' | 'down';
+export type PrototypeEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+
+export interface PrototypeInteraction {
+  id: string;
+  trigger: 'click';
+  action: PrototypeAction;
+  destinationFrameId?: string;
+  transition: PrototypeTransition;
+  direction: PrototypeDirection;
+  easing: PrototypeEasing;
+  durationMs: number;
+}
+
+export interface ImageFill {
+  assetId: string;
+  src: string;
+  mimeType?: string;
+  name?: string;
+  mode: 'fill' | 'fit' | 'crop' | 'tile';
+  offsetX: number;
+  offsetY: number;
+  scale: number;
+  rotation: number;
+  tileScale: number;
+}
+
+export interface VectorPoint {
+  x: number;
+  y: number;
+  handleIn?: Point;
+  handleOut?: Point;
 }
 
 export type LayoutMode = 'none' | 'horizontal' | 'vertical';
@@ -136,6 +176,16 @@ export interface CanvasElement {
   mediaMimeType?: string;
   mediaName?: string;
   objectFit?: 'cover' | 'contain' | 'fill';
+  imageFill?: ImageFill;
+  // Prototype specific
+  interactions?: PrototypeInteraction[];
+  prototypeFlowStart?: boolean;
+  // Vector, mask, and non-destructive boolean metadata
+  vectorPath?: VectorPoint[];
+  vectorClosed?: boolean;
+  maskId?: string;
+  booleanOperation?: 'union' | 'subtract' | 'intersect' | 'exclude';
+  booleanSourceIds?: string[];
   // Component and instance metadata
   mainComponentId?: string;
   sourceElementId?: string;

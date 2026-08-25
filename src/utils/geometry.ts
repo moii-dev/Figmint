@@ -329,6 +329,17 @@ export function generateSvgString(
       }
       svgContent += `  </defs>\n`;
     }
+    if (el.imageFill?.src) {
+      const imageId = `export-image-${el.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+      if (el.imageFill.mode === 'tile') {
+        const tileWidth = Math.max(1, width * el.imageFill.tileScale);
+        const tileHeight = Math.max(1, height * el.imageFill.tileScale);
+        svgContent += `  <defs><pattern id="${imageId}" patternUnits="userSpaceOnUse" width="${tileWidth}" height="${tileHeight}"><image href="${escapeXml(el.imageFill.src)}" width="${tileWidth}" height="${tileHeight}" preserveAspectRatio="xMidYMid slice" /></pattern></defs>\n`;
+      } else {
+        const preserve = el.imageFill.mode === 'fit' ? 'xMidYMid meet' : 'xMidYMid slice';
+        svgContent += `  <defs><pattern id="${imageId}" patternContentUnits="objectBoundingBox" width="1" height="1"><image href="${escapeXml(el.imageFill.src)}" width="1" height="1" preserveAspectRatio="${preserve}" /></pattern></defs>\n`;
+      }
+    }
 
     const renderShape = (paint: string, layerOpacity: number, outline = false) => {
       const opacity = Math.max(0, Math.min(1, layerOpacity));
@@ -397,6 +408,10 @@ export function generateSvgString(
         const lineEnd = x + Math.max(0, width - headSize);
         return `  <line x1="${x}" y1="${midY}" x2="${lineEnd}" y2="${midY}" stroke="${paint}" stroke-width="${Math.max(2, el.strokeWidth || 3)}" ${strokeDash} ${transform} ${opacityAttr} />\n  <polygon points="${lineEnd},${midY - headSize / 2} ${x + width},${midY} ${lineEnd},${midY + headSize / 2}" fill="${paint}" ${transform} ${opacityAttr} />\n`;
       }
+      if (el.type === 'vector' && !outline && el.vectorPath?.length) {
+        const path = el.vectorPath.map((point, index) => `${index === 0 ? 'M' : 'L'} ${x + point.x * width} ${y + point.y * height}`).join(' ');
+        return `  <path d="${path}${el.vectorClosed ? ' Z' : ''}" fill="${el.vectorClosed ? paint : 'none'}" stroke="${el.strokeWidth > 0 ? strokeStyle : paint}" stroke-width="${Math.max(1, el.strokeWidth || 2)}" ${strokeDash} ${transform} ${opacityAttr} />\n`;
+      }
       if (el.type === 'image' && !outline && el.mediaSrc) {
         return `  <image href="${escapeXml(el.mediaSrc)}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="${el.objectFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice'}" ${transform} ${opacityAttr} />\n`;
       }
@@ -406,7 +421,10 @@ export function generateSvgString(
       return '';
     };
 
-    svgContent += renderShape((el.type === 'line' || el.type === 'arrow') && el.strokeWidth > 0 ? strokeStyle : fillStyle, 1);
+    const basePaint = el.imageFill?.src
+      ? `url(#export-image-${el.id.replace(/[^a-zA-Z0-9_-]/g, '-')})`
+      : (el.type === 'line' || el.type === 'arrow') && el.strokeWidth > 0 ? strokeStyle : fillStyle;
+    svgContent += renderShape(basePaint, 1);
     if ((el.type !== 'line' && el.type !== 'arrow' && el.type !== 'image' && el.type !== 'video') || el.strokeWidth === 0) {
       for (const gradient of [...gradients].reverse()) {
         svgContent += renderShape(`url(#${getSvgGradientId('export', el.id, gradient.id)})`, gradient.opacity);

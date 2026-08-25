@@ -29,8 +29,9 @@ import {
 } from '../utils/gradient';
 import { getCssStrokeOverlayStyle, getEllipseStrokeGeometry } from '../utils/stroke';
 import { resolveElementTokens } from '../utils/tokens';
+import { ImageFillLayer } from './ImageFillLayer';
 
-const CREATION_TOOLS = ['frame', 'rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'text', 'line', 'arrow'];
+const CREATION_TOOLS = ['frame', 'rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'text', 'line', 'arrow', 'pen'];
 const CONTAINER_TYPES: CanvasElement['type'][] = ['frame', 'component', 'instance'];
 
 interface DragElementSnapshot {
@@ -46,7 +47,7 @@ interface DragElementSnapshot {
 }
 
 interface DragState {
-  type: 'pan' | 'move' | 'resize' | 'radius' | 'draw' | 'marquee';
+  type: 'pan' | 'move' | 'resize' | 'radius' | 'draw' | 'marquee' | 'node';
   pointerId: number;
   startX: number;
   startY: number;
@@ -101,6 +102,14 @@ function resizeRect(
   return { x, y, width, height };
 }
 
+function getVectorPathD(element: CanvasElement): string {
+  const points = element.vectorPath || [];
+  if (points.length === 0) return '';
+  const commands = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x * element.width} ${point.y * element.height}`);
+  if (element.vectorClosed) commands.push('Z');
+  return commands.join(' ');
+}
+
 interface CanvasProps {
   hideFloatingToolbar?: boolean;
 }
@@ -129,6 +138,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
     importMediaFiles,
     finishInteraction,
     tokens,
+    appMode,
   } = useCanvas();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -137,6 +147,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
   // Interaction State
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [prototypeConnectionSourceId, setPrototypeConnectionSourceId] = useState<string | null>(null);
 
   // Marquee Selection Box State
   const [marqueeBox, setMarqueeBox] = useState<Rect | null>(null);
@@ -207,6 +218,32 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
     [pan, zoom, rulerOffset]
   );
 
+  useEffect(() => {
+    if (!prototypeConnectionSourceId) return;
+    const handleConnectionEnd = (event: PointerEvent) => {
+      const point = screenToWorld(event.clientX, event.clientY);
+      const targetFrame = elements
+        .filter((element) => element.type === 'frame' && !element.parentId)
+        .find((frame) => {
+          const rect = getWorldRect(frame, elements);
+          return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+        });
+      const source = elements.find((element) => element.id === prototypeConnectionSourceId);
+      if (source && targetFrame && source.id !== targetFrame.id) {
+        updateElement(source.id, {
+          interactions: [...(source.interactions || []), {
+            id: `interaction-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            trigger: 'click', action: 'navigate-to', destinationFrameId: targetFrame.id,
+            transition: 'smart-animate', direction: 'left', easing: 'ease-in-out', durationMs: 300,
+          }],
+        });
+      }
+      setPrototypeConnectionSourceId(null);
+    };
+    window.addEventListener('pointerup', handleConnectionEnd, { once: true });
+    return () => window.removeEventListener('pointerup', handleConnectionEnd);
+  }, [elements, prototypeConnectionSourceId, screenToWorld, updateElement]);
+
   // Canvas Mouse Wheel for Pan & Zoom (Figma-style)
   const handleWheel = useCallback(
     (e: WheelEvent) => {
@@ -246,7 +283,10 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
     if (files.length === 0) return;
     event.preventDefault();
     event.stopPropagation();
-    void importMediaFiles(files, screenToWorld(event.clientX, event.clientY));
+    const targetElementId = (event.target as HTMLElement)
+      .closest<HTMLElement>('[data-canvas-element-id]')
+      ?.dataset.canvasElementId;
+    void importMediaFiles(files, screenToWorld(event.clientX, event.clientY), targetElementId);
   }, [importMediaFiles, screenToWorld]);
 
   const handleWheelRef = useRef(handleWheel);
@@ -565,13 +605,28 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
       const radius = Math.min(maxRadius, Math.max(0, Math.hypot(dx, dy) - 10));
       updateElement(initial.id, { cornerRadius: Math.round(radius) }, false);
       setDragState((prev) => prev ? { ...prev, didChange: true } : null);
+      return;
+    }
+
+    if (dragState.type === 'node' && dragState.initialElements && dragState.cornerIndex !== undefined) {
+      const target = elements.find((element) => element.id === dragState.initialElements![0].id);
+      if (!target?.vectorPath) return;
+      const rect = getWorldRect(target, elements);
+      const nextPoint = {
+        x: Math.max(0, Math.min(1, (worldPt.x - rect.x) / Math.max(1, rect.width))),
+        y: Math.max(0, Math.min(1, (worldPt.y - rect.y) / Math.max(1, rect.height))),
+      };
+      updateElement(target.id, {
+        vectorPath: target.vectorPath.map((point, index) => index === dragState.cornerIndex ? { ...point, ...nextPoint } : point),
+      }, false);
+      setDragState((prev) => prev ? { ...prev, didChange: true } : null);
     }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!dragState || dragState.pointerId !== e.pointerId) return;
 
-    if (dragState.didChange && ['move', 'resize', 'radius', 'draw'].includes(dragState.type)) {
+    if (dragState.didChange && ['move', 'resize', 'radius', 'draw', 'node'].includes(dragState.type)) {
       finishInteraction(
         dragState.type === 'move' ? dragState.initialElements?.map((item) => item.id) || [] : []
       );
@@ -588,17 +643,51 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
 
   const getCanvasCursor = () => {
     if (isSpacePressed || activeTool === 'hand') return dragState?.type === 'pan' ? 'grabbing' : 'grab';
-    if (['rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'frame', 'line', 'arrow'].includes(activeTool))
+    if (['rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'frame', 'line', 'arrow', 'pen'].includes(activeTool))
       return 'crosshair';
     if (activeTool === 'text') return 'text';
     return 'default';
   };
 
+  const renderPrototypeHandle = (element: CanvasElement, visible: boolean) => {
+    if (appMode !== 'prototype' || !visible) return null;
+    return (
+      <button
+        type="button"
+        aria-label="Create prototype connection"
+        title="Drag to a frame to create an interaction"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setPrototypeConnectionSourceId(element.id);
+        }}
+        className="absolute -right-4 top-1/2 z-50 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-white bg-[#0d99ff] shadow-md transition-transform duration-150 hover:scale-125"
+        style={{ transformOrigin: 'center' }}
+      />
+    );
+  };
+
+  const getMaskClipPath = (element: CanvasElement): string | undefined => {
+    if (!element.maskId) return undefined;
+    const mask = elements.find((item) => item.id === element.maskId);
+    if (!mask) return undefined;
+    const targetRect = getWorldRect(element, elements);
+    const maskRect = getWorldRect(mask, elements);
+    const left = ((maskRect.x - targetRect.x) / targetRect.width) * 100;
+    const top = ((maskRect.y - targetRect.y) / targetRect.height) * 100;
+    const right = ((targetRect.x + targetRect.width - maskRect.x - maskRect.width) / targetRect.width) * 100;
+    const bottom = ((targetRect.y + targetRect.height - maskRect.y - maskRect.height) / targetRect.height) * 100;
+    if (mask.type === 'ellipse') {
+      return `ellipse(${(maskRect.width / targetRect.width) * 50}% ${(maskRect.height / targetRect.height) * 50}% at ${left + (maskRect.width / targetRect.width) * 50}% ${top + (maskRect.height / targetRect.height) * 50}%)`;
+    }
+    return `inset(${top}% ${right}% ${bottom}% ${left}% round ${mask.cornerRadius || 0}px)`;
+  };
+
   // Render individual canvas shape (rectangle, ellipse, text, etc.)
   const renderShapeContent = (el: CanvasElement) => {
     el = resolveElementTokens(el, tokens);
-    const fillStyle = hexToRgba(el.fill, el.fillOpacity);
-    const fillCss = getElementCssFill(el);
+    const fillStyle = el.imageFill ? 'transparent' : hexToRgba(el.fill, el.fillOpacity);
+    const fillCss: React.CSSProperties = el.imageFill ? { backgroundColor: 'transparent' } : getElementCssFill(el);
     const visibleGradients = getVisibleGradients(el);
     const svgGradients = [...visibleGradients].reverse();
     const strokeStyle =
@@ -613,6 +702,34 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
       boxShadowStyle = `${s.x}px ${s.y}px ${s.blur}px ${s.spread}px ${shadowColor}`;
     }
 
+    if (el.type === 'boolean') {
+      const groupRect = getWorldRect(el, elements);
+      const sources = (el.booleanSourceIds || []).flatMap((id) => {
+        const source = elements.find((item) => item.id === id);
+        if (!source) return [];
+        const rect = getWorldRect(source, elements);
+        const x = rect.x - groupRect.x;
+        const y = rect.y - groupRect.y;
+        if (source.type === 'ellipse') {
+          const rx = rect.width / 2;
+          const ry = rect.height / 2;
+          return [`M ${x + rx} ${y} A ${rx} ${ry} 0 1 1 ${x + rx} ${y + rect.height} A ${rx} ${ry} 0 1 1 ${x + rx} ${y} Z`];
+        }
+        return [`M ${x} ${y} H ${x + rect.width} V ${y + rect.height} H ${x} Z`];
+      });
+      const combined = sources.join(' ');
+      const operation = el.booleanOperation || 'union';
+      return (
+        <svg className="h-full w-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+          {operation === 'intersect' && sources.length >= 2 ? (
+            <><defs><clipPath id={`boolean-clip-${el.id}`}><path d={sources.slice(1).join(' ')} /></clipPath></defs><path d={sources[0]} fill={fillStyle} clipPath={`url(#boolean-clip-${el.id})`} /></>
+          ) : (
+            <path d={combined} fill={fillStyle} fillRule={operation === 'union' ? 'nonzero' : 'evenodd'} />
+          )}
+        </svg>
+      );
+    }
+
     if (el.type === 'rectangle' || CONTAINER_TYPES.includes(el.type)) {
       return (
         <div
@@ -623,6 +740,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             boxShadow: boxShadowStyle,
           }}
         >
+          <ImageFillLayer element={el} />
           {el.strokeWidth > 0 && <div style={getCssStrokeOverlayStyle(el, strokeStyle)} />}
         </div>
       );
@@ -638,6 +756,8 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
       const strokeGeometry = getEllipseStrokeGeometry(el);
 
       return (
+        <>
+        <ImageFillLayer element={el} />
         <svg
           className="h-full w-full overflow-visible"
           viewBox={`0 0 ${el.width} ${el.height}`}
@@ -671,11 +791,14 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             />
           ) : null}
         </svg>
+        </>
       );
     }
 
     if (el.type === 'triangle') {
       return (
+        <>
+        <ImageFillLayer element={el} />
         <svg
           className="w-full h-full overflow-visible"
           viewBox={`0 0 ${el.width} ${el.height}`}
@@ -711,11 +834,14 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             strokeDasharray={strokeDash}
           />
         </svg>
+        </>
       );
     }
 
     if (el.type === 'star') {
       return (
+        <>
+        <ImageFillLayer element={el} />
         <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
           <SvgGradientDefs element={el} prefix="canvas" />
           <polygon
@@ -740,6 +866,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             strokeDasharray={strokeDash}
           />
         </svg>
+        </>
       );
     }
 
@@ -748,6 +875,8 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
         ? getPolygonPoints(el.width, el.height)
         : getDiamondPoints(el.width, el.height);
       return (
+        <>
+        <ImageFillLayer element={el} />
         <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
           <SvgGradientDefs element={el} prefix="canvas" />
           <polygon points={points} fill={fillStyle} stroke="none" />
@@ -768,6 +897,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             strokeDasharray={strokeDash}
           />
         </svg>
+        </>
       );
     }
 
@@ -780,6 +910,31 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
           className="pointer-events-none h-full w-full select-none"
           style={{ objectFit: el.objectFit || 'cover', borderRadius: `${el.cornerRadius || 0}px` }}
         />
+      );
+    }
+
+    if (el.type === 'vector') {
+      return (
+        <>
+          <svg className="h-full w-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+            <path d={getVectorPathD(el)} fill={el.vectorClosed ? fillStyle : 'none'} stroke={strokeStyle === 'transparent' ? fillStyle : strokeStyle} strokeWidth={Math.max(1, el.strokeWidth || 2)} strokeDasharray={strokeDash} strokeLinejoin="round" strokeLinecap="round" />
+          </svg>
+          {activeTool === 'node' && selectedIds.includes(el.id) && el.vectorPath?.map((point, index) => (
+            <button
+              key={`${el.id}-node-${index}`}
+              type="button"
+              aria-label={`Vector node ${index + 1}`}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                capturePointer(event.pointerId);
+                setDragState({ type: 'node', pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, initialElements: [createSnapshot(el)], cornerIndex: index });
+              }}
+              className="absolute z-50 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-[#0d99ff] bg-white shadow-sm"
+              style={{ left: `${point.x * el.width}px`, top: `${point.y * el.height}px` }}
+            />
+          ))}
+        </>
       );
     }
 
@@ -949,6 +1104,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
           transformOrigin: 'center center',
           opacity: renderedElement.opacity,
           zIndex: layerIndex + 1,
+          clipPath: getMaskClipPath(el),
         }}
       >
         {CONTAINER_TYPES.includes(el.type) ? (
@@ -981,6 +1137,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             isResizing={dragState?.type === 'resize'}
           />
         )}
+        {renderPrototypeHandle(el, isSingleSelected && !isEditing)}
       </div>
     );
   };
@@ -994,7 +1151,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
     const isSingleSelected = selectedIds.length === 1 && isSelected;
     const isEditing = editingTextId === el.id;
 
-    const fillCss = getElementCssFill(renderedElement);
+    const fillCss: React.CSSProperties = renderedElement.imageFill ? { backgroundColor: 'transparent' } : getElementCssFill(renderedElement);
     const strokeStyle =
       renderedElement.strokeWidth > 0 ? hexToRgba(renderedElement.stroke, renderedElement.strokeOpacity) : 'transparent';
     let boxShadowStyle = 'none';
@@ -1032,6 +1189,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             transformOrigin: 'center center',
             opacity: renderedElement.opacity,
             zIndex: layerIndex + 1,
+            clipPath: getMaskClipPath(el),
           }}
         >
           {/* Frame Label Title above frame */}
@@ -1058,6 +1216,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
               overflow: el.clipContent ? 'hidden' : 'visible',
             }}
           >
+            <ImageFillLayer element={renderedElement} />
             {/* Direct nested children rendered inside this frame DOM container */}
             {children.map((child, childIndex) => renderNestedElement(child, childIndex))}
           </div>
@@ -1080,6 +1239,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
               isResizing={dragState?.type === 'resize'}
             />
           )}
+          {renderPrototypeHandle(el, isSingleSelected)}
         </div>
       );
     }
@@ -1109,6 +1269,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
           transformOrigin: 'center center',
           opacity: el.opacity,
           zIndex: layerIndex + 1,
+          clipPath: getMaskClipPath(el),
         }}
       >
         {renderShapeContent(renderedElement)}
@@ -1123,6 +1284,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             isResizing={dragState?.type === 'resize'}
           />
         )}
+        {renderPrototypeHandle(el, isSingleSelected && !isEditing)}
       </div>
     );
   };
@@ -1202,6 +1364,27 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
         ))}
 
         {/* Canvas Root Elements Tree (Frames render their own children nested inside) */}
+        {appMode === 'prototype' && (
+          <svg className="pointer-events-none absolute left-0 top-0 z-30 h-px w-px overflow-visible" aria-label="Prototype connections">
+            {elements.flatMap((source) => (source.interactions || []).flatMap((interaction) => {
+              const target = elements.find((element) => element.id === interaction.destinationFrameId && element.type === 'frame' && !element.parentId);
+              if (!target) return [];
+              const from = getWorldRect(source, elements);
+              const to = getWorldRect(target, elements);
+              const x1 = from.x + from.width;
+              const y1 = from.y + from.height / 2;
+              const x2 = to.x;
+              const y2 = to.y + Math.min(36, to.height / 2);
+              const bend = Math.max(48, Math.abs(x2 - x1) * 0.45);
+              return [
+                <g key={`${source.id}-${interaction.id}`}>
+                  <path d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`} fill="none" stroke="#0d99ff" strokeWidth={Math.max(1.5, 2 / zoom)} />
+                  <circle cx={x2} cy={y2} r={Math.max(3, 4 / zoom)} fill="#0d99ff" />
+                </g>,
+              ];
+            }))}
+          </svg>
+        )}
         {rootElements.map((el, layerIndex) => renderRootElement(el, layerIndex))}
 
         {/* Multi-selection unified bounding outline */}

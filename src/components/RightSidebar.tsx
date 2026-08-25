@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlignLeft,
   AlignCenter,
@@ -25,6 +25,8 @@ import {
   LayoutGrid,
   LocateFixed,
   RotateCcw,
+  Play,
+  MousePointerClick,
 } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
 import { CanvasElement, ShapeType } from '../types/figma';
@@ -38,6 +40,28 @@ import {
 import { normalizeHexColor } from '../utils/color';
 import { getInstanceRoot } from '../utils/components';
 import { getCompatibleTokens } from '../utils/tokens';
+import { createPrototypeInteraction } from '../utils/prototype';
+
+const InspectorTabs: React.FC<{
+  mode: 'design' | 'prototype';
+  onChange: (mode: 'design' | 'prototype') => void;
+}> = ({ mode, onChange }) => (
+  <div className="grid grid-cols-2 border-b border-[#e6e6e6] bg-white">
+    {(['design', 'prototype'] as const).map((tab) => (
+      <button
+        key={tab}
+        type="button"
+        onClick={() => onChange(tab)}
+        className={`relative px-3 py-2.5 text-[11px] font-semibold capitalize transition-colors ${
+          mode === tab ? 'text-[#0d99ff]' : 'text-gray-500 hover:text-gray-800'
+        }`}
+      >
+        {tab}
+        {mode === tab && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#0d99ff]" />}
+      </button>
+    ))}
+  </div>
+);
 
 const transparencyGridStyle = {
   backgroundColor: '#ffffff',
@@ -68,6 +92,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
     goToMainComponent,
     wrapSelectionInAutoLayout,
     bindToken,
+    appMode,
+    setAppMode,
+    updateElements,
+    importMediaFiles,
+    setPresentationMode,
+    createMaskFromSelection,
+    createBooleanOperation,
+    releaseComposite,
   } = useCanvas();
 
   const [activeColorPicker, setActiveColorPicker] = useState<'fill' | 'gradient' | 'stroke' | 'shadow' | null>(null);
@@ -76,6 +108,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
   const [isStrokeOpen, setIsStrokeOpen] = useState(false);
   const [isEffectsOpen, setIsEffectsOpen] = useState(true);
   const [isExportOpen, setIsExportOpen] = useState(true);
+  const imageFillInputRef = useRef<HTMLInputElement>(null);
 
   const selectedElements = elements.filter((el) => selectedIds.includes(el.id));
   const primaryElement = selectedElements[0] as CanvasElement | undefined;
@@ -95,6 +128,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
         id="figma-right-sidebar"
         className={`absolute inset-y-0 right-0 w-[min(288px,88vw)] bg-white border-l border-[#e6e6e6] flex-col h-full text-[#333333] z-30 select-none shadow-xl xl:shadow-none xl:relative xl:w-72 xl:flex-none ${isOpen ? 'flex' : 'hidden xl:flex'}`}
       >
+        <InspectorTabs mode={appMode} onChange={setAppMode} />
         <div className="p-3 border-b border-[#e6e6e6] flex items-center justify-between">
           <span className="text-xs font-semibold text-gray-700">Document</span>
           <button onClick={onClose} aria-label="Close properties panel" className="p-1 rounded-md hover:bg-gray-100 xl:hidden">
@@ -218,11 +252,116 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
     }
   };
 
+  if (appMode === 'prototype') {
+    const frames = elements.filter((element) => element.type === 'frame' && !element.parentId);
+    const interactions = primaryElement.interactions || [];
+    const updateInteraction = (interactionId: string, changes: Partial<typeof interactions[number]>) => {
+      handleUpdate({
+        interactions: interactions.map((interaction) =>
+          interaction.id === interactionId ? { ...interaction, ...changes } : interaction
+        ),
+      });
+    };
+    const makeFlowStart = () => {
+      updateElements(
+        frames.map((frame) => ({ id: frame.id, changes: { prototypeFlowStart: frame.id === primaryElement.id } })),
+      );
+    };
+
+    return (
+      <aside
+        id="figma-right-sidebar"
+        className={`absolute inset-y-0 right-0 w-[min(288px,88vw)] bg-white border-l border-[#e6e6e6] flex-col h-full text-[#333333] z-30 select-none shadow-xl xl:shadow-none xl:relative xl:w-72 xl:flex-none ${isOpen ? 'flex' : 'hidden xl:flex'}`}
+      >
+        <InspectorTabs mode={appMode} onChange={setAppMode} />
+        <div className="flex items-center justify-between border-b border-[#e6e6e6] px-3 py-2">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold">{primaryElement.name}</div>
+            <div className="text-[10px] text-gray-400">Prototype hotspot</div>
+          </div>
+          <button onClick={onClose} aria-label="Close properties panel" className="p-1 rounded-md hover:bg-gray-100 xl:hidden"><X size={16} /></button>
+        </div>
+        <div className="flex-1 space-y-3 overflow-y-auto p-3 custom-scrollbar">
+          {primaryElement.type === 'frame' && !primaryElement.parentId && (
+            <button
+              type="button"
+              onClick={makeFlowStart}
+              className={`w-full rounded-lg border px-2.5 py-2 text-left text-[11px] font-semibold transition-colors ${
+                primaryElement.prototypeFlowStart
+                  ? 'border-[#0d99ff] bg-[#eaf5ff] text-[#0878c7]'
+                  : 'border-[#e2e8f0] bg-[#f8fafc] text-gray-600 hover:border-[#0d99ff]'
+              }`}
+            >
+              {primaryElement.prototypeFlowStart ? 'Flow starting point' : 'Set as flow starting point'}
+            </button>
+          )}
+
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-700"><MousePointerClick size={13} /> Interactions</span>
+              <button
+                type="button"
+                aria-label="Add interaction"
+                onClick={() => {
+                  const destination = frames.find((frame) => frame.id !== primaryElement.id);
+                  handleUpdate({ interactions: [...interactions, createPrototypeInteraction(destination?.id)] });
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 hover:bg-[#eaf5ff] hover:text-[#0d99ff]"
+              ><Plus size={14} /></button>
+            </div>
+
+            {interactions.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-4 text-center text-[10px] leading-relaxed text-gray-500">
+                Drag the blue handle to a frame, or press + to create an interaction.
+              </div>
+            ) : interactions.map((interaction) => {
+              const missingDestination = interaction.destinationFrameId
+                && !frames.some((frame) => frame.id === interaction.destinationFrameId);
+              return (
+                <div key={interaction.id} className={`space-y-2 rounded-xl border p-2.5 ${missingDestination ? 'border-amber-300 bg-amber-50' : 'border-[#d7e8f7] bg-[#f8fbfe]'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold text-gray-600">On click</span>
+                    <button type="button" aria-label="Delete interaction" onClick={() => handleUpdate({ interactions: interactions.filter((item) => item.id !== interaction.id) })} className="text-gray-400 hover:text-red-500"><Trash2 size={12} /></button>
+                  </div>
+                  <select value={interaction.action} onChange={(event) => updateInteraction(interaction.id, { action: event.target.value as typeof interaction.action })} className="w-full rounded-md border border-[#dce3eb] bg-white px-2 py-1.5 text-[10px] font-semibold outline-none focus:border-[#0d99ff]">
+                    <option value="navigate-to">Navigate to</option><option value="back">Back</option><option value="open-overlay">Open overlay</option><option value="close-overlay">Close overlay</option>
+                  </select>
+                  {(['navigate-to', 'open-overlay'].includes(interaction.action)) && (
+                    <select value={interaction.destinationFrameId || ''} onChange={(event) => updateInteraction(interaction.id, { destinationFrameId: event.target.value || undefined })} className={`w-full rounded-md border bg-white px-2 py-1.5 text-[10px] outline-none ${missingDestination ? 'border-amber-400 text-amber-700' : 'border-[#dce3eb]'}`}>
+                      <option value="">{missingDestination ? 'Missing destination' : 'Choose frame…'}</option>
+                      {frames.map((frame) => <option key={frame.id} value={frame.id}>{frame.name}</option>)}
+                    </select>
+                  )}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <select value={interaction.transition} onChange={(event) => updateInteraction(interaction.id, { transition: event.target.value as typeof interaction.transition })} className="rounded-md border border-[#dce3eb] bg-white px-1.5 py-1.5 text-[10px] outline-none">
+                      <option value="instant">Instant</option><option value="dissolve">Dissolve</option><option value="move">Move</option><option value="push">Push</option><option value="smart-animate">Smart animate</option>
+                    </select>
+                    <select value={interaction.direction} onChange={(event) => updateInteraction(interaction.id, { direction: event.target.value as typeof interaction.direction })} className="rounded-md border border-[#dce3eb] bg-white px-1.5 py-1.5 text-[10px] outline-none">
+                      <option value="left">Left</option><option value="right">Right</option><option value="up">Up</option><option value="down">Down</option>
+                    </select>
+                    <select value={interaction.easing} onChange={(event) => updateInteraction(interaction.id, { easing: event.target.value as typeof interaction.easing })} className="rounded-md border border-[#dce3eb] bg-white px-1.5 py-1.5 text-[10px] outline-none">
+                      <option value="linear">Linear</option><option value="ease-in">Ease in</option><option value="ease-out">Ease out</option><option value="ease-in-out">Ease in/out</option>
+                    </select>
+                    <label className="flex items-center rounded-md border border-[#dce3eb] bg-white px-1.5"><input aria-label="Transition duration" type="number" min="1" max="10000" value={interaction.durationMs} onChange={(event) => updateInteraction(interaction.id, { durationMs: Math.max(1, Math.min(10000, Number(event.target.value))) })} className="min-w-0 flex-1 bg-transparent py-1 text-[10px] outline-none" /><span className="text-[9px] text-gray-400">ms</span></label>
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+        </div>
+        <div className="border-t border-[#e6e6e6] p-3">
+          <button type="button" onClick={() => setPresentationMode(true)} className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#0d99ff] px-3 py-2 text-xs font-semibold text-white hover:bg-[#0b85e0]"><Play size={13} fill="currentColor" /> Present prototype</button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside
       id="figma-right-sidebar"
       className={`absolute inset-y-0 right-0 w-[min(288px,88vw)] bg-white border-l border-[#e6e6e6] flex-col h-full text-[#333333] z-30 select-none custom-scrollbar overflow-y-auto shadow-xl xl:shadow-none xl:relative xl:w-72 xl:flex-none ${isOpen ? 'flex' : 'hidden xl:flex'}`}
     >
+      <InspectorTabs mode={appMode} onChange={setAppMode} />
       {/* 1. Header Toolbar */}
       <div className="p-2.5 border-b border-[#e6e6e6] flex items-center justify-between bg-white sticky top-0 z-20">
         <div className="flex items-center gap-1">
@@ -237,6 +376,20 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
       </div>
 
       <div className="p-3 space-y-4 text-xs">
+        {selectedElements.length >= 2 && (
+          <section className="space-y-2 rounded-xl border border-[#dce3eb] bg-[#fafcfe] p-2.5">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-gray-700">Combine</div>
+            <div className="grid grid-cols-4 gap-1">
+              {(['union', 'subtract', 'intersect', 'exclude'] as const).map((operation) => (
+                <button key={operation} type="button" onClick={() => createBooleanOperation(operation)} title={operation} className="rounded-md border border-[#dce3eb] bg-white px-1 py-1.5 text-[9px] font-semibold capitalize text-gray-600 hover:border-[#0d99ff] hover:text-[#0d99ff]">{operation.slice(0, 3)}</button>
+              ))}
+            </div>
+            {selectedElements.length === 2 && <button type="button" onClick={createMaskFromSelection} className="w-full rounded-md border border-[#dce3eb] bg-white py-1.5 text-[10px] font-semibold text-gray-600 hover:border-[#0d99ff] hover:text-[#0d99ff]">Use top layer as mask</button>}
+          </section>
+        )}
+        {(primaryElement.type === 'boolean' || primaryElement.maskId) && (
+          <button type="button" onClick={() => releaseComposite(primaryElement.id)} className="w-full rounded-lg border border-[#dce3eb] bg-[#f8fafc] py-1.5 text-[10px] font-semibold text-gray-600 hover:border-[#0d99ff]">Release {primaryElement.type === 'boolean' ? 'boolean group' : 'mask'}</button>
+        )}
         {/* Component controls */}
         {(primaryElement.type === 'frame' || primaryElement.type === 'component' || instanceRoot) && (
           <section className="space-y-2 rounded-xl border border-[#e5d8f5] bg-[#fbf8ff] p-2.5">
@@ -603,6 +756,50 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
                 </label>
               ))}
             </div>
+          </section>
+        )}
+
+        {['rectangle', 'frame', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'component', 'instance'].includes(primaryElement.type) && (
+          <section className="space-y-2 border-b border-[#e6e6e6] pb-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700">Image fill</span>
+              <button type="button" onClick={() => imageFillInputRef.current?.click()} className="rounded-md px-1.5 py-1 text-[10px] font-semibold text-[#0d99ff] hover:bg-[#eaf5ff]">{primaryElement.imageFill ? 'Replace' : '+ Add'}</button>
+            </div>
+            <input
+              ref={imageFillInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void importMediaFiles([file], undefined, primaryElement.id);
+                event.target.value = '';
+              }}
+            />
+            {primaryElement.imageFill ? (
+              <div className="space-y-2 rounded-xl border border-[#dce3eb] bg-[#fafcfe] p-2">
+                <div className="flex items-center gap-2">
+                  <img src={primaryElement.imageFill.src} alt="" className="h-9 w-12 rounded-md border border-black/10 object-cover" />
+                  <div className="min-w-0 flex-1"><div className="truncate text-[10px] font-semibold text-gray-700">{primaryElement.imageFill.name || 'Image'}</div><div className="text-[9px] text-gray-400">Paste or drop to replace</div></div>
+                  <button type="button" aria-label="Remove image fill" onClick={() => handleUpdate({ imageFill: undefined })} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
+                </div>
+                <div className="grid grid-cols-4 gap-1 rounded-lg bg-[#edf1f5] p-1">
+                  {(['fill', 'fit', 'crop', 'tile'] as const).map((mode) => (
+                    <button key={mode} type="button" onClick={() => handleUpdate({ imageFill: { ...primaryElement.imageFill!, mode } })} className={`rounded-md py-1 text-[9px] font-semibold capitalize ${primaryElement.imageFill!.mode === mode ? 'bg-white text-[#0d99ff] shadow-xs' : 'text-gray-500 hover:text-gray-800'}`}>{mode}</button>
+                  ))}
+                </div>
+                {(primaryElement.imageFill.mode === 'crop' || primaryElement.imageFill.mode === 'tile') && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <label className="rounded-md border border-[#dce3eb] bg-white px-1.5 py-1"><span className="block text-[8px] font-bold uppercase text-gray-400">X</span><input aria-label="Image offset X" type="number" step="0.05" value={primaryElement.imageFill.offsetX} onChange={(event) => handleUpdate({ imageFill: { ...primaryElement.imageFill!, offsetX: Number(event.target.value) } })} className="w-full bg-transparent text-[10px] outline-none" /></label>
+                    <label className="rounded-md border border-[#dce3eb] bg-white px-1.5 py-1"><span className="block text-[8px] font-bold uppercase text-gray-400">Y</span><input aria-label="Image offset Y" type="number" step="0.05" value={primaryElement.imageFill.offsetY} onChange={(event) => handleUpdate({ imageFill: { ...primaryElement.imageFill!, offsetY: Number(event.target.value) } })} className="w-full bg-transparent text-[10px] outline-none" /></label>
+                    <label className="rounded-md border border-[#dce3eb] bg-white px-1.5 py-1"><span className="block text-[8px] font-bold uppercase text-gray-400">{primaryElement.imageFill.mode === 'tile' ? 'Tile scale' : 'Scale'}</span><input aria-label="Image scale" type="number" min="0.05" step="0.05" value={primaryElement.imageFill.mode === 'tile' ? primaryElement.imageFill.tileScale : primaryElement.imageFill.scale} onChange={(event) => handleUpdate({ imageFill: { ...primaryElement.imageFill!, [primaryElement.imageFill!.mode === 'tile' ? 'tileScale' : 'scale']: Math.max(0.05, Number(event.target.value)) } })} className="w-full bg-transparent text-[10px] outline-none" /></label>
+                    {primaryElement.imageFill.mode === 'crop' && <label className="rounded-md border border-[#dce3eb] bg-white px-1.5 py-1"><span className="block text-[8px] font-bold uppercase text-gray-400">Rotation</span><input aria-label="Image rotation" type="number" value={primaryElement.imageFill.rotation} onChange={(event) => handleUpdate({ imageFill: { ...primaryElement.imageFill!, rotation: Number(event.target.value) } })} className="w-full bg-transparent text-[10px] outline-none" /></label>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button type="button" onClick={() => imageFillInputRef.current?.click()} className="w-full rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-2 py-2.5 text-[10px] text-gray-500 hover:border-[#0d99ff] hover:text-[#0d99ff]">Choose, paste, or drop an image</button>
+            )}
           </section>
         )}
 

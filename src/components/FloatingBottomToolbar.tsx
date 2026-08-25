@@ -293,12 +293,12 @@ export const FloatingBottomToolbar: React.FC = () => {
             <button
               id="tool-pen-btn"
               onClick={() => {
-                setTool(activeTool === 'line' ? 'select' : 'line');
+                setTool(activeTool === 'pen' ? 'select' : 'pen');
                 setOpenDropdown(null);
               }}
-              title="Line Tool (L)"
+              title="Pen Tool (P)"
               className={`p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                activeTool === 'line' || activeTool === 'arrow'
+                activeTool === 'pen' || activeTool === 'node'
                   ? 'bg-[#0d99ff] text-white shadow-sm'
                   : 'text-[#444444] hover:bg-[#f1f5f9] hover:text-[#111111]'
               }`}
@@ -312,7 +312,7 @@ export const FloatingBottomToolbar: React.FC = () => {
               aria-expanded={openDropdown === 'pen'}
               aria-haspopup="menu"
               className={`p-1 h-full rounded-r-lg hover:bg-black/5 text-[#555555] transition-colors cursor-pointer ${
-                activeTool === 'line' || activeTool === 'arrow' ? 'text-white/80 hover:text-white' : ''
+                activeTool === 'pen' || activeTool === 'node' ? 'text-white/80 hover:text-white' : ''
               }`}
             >
               <ChevronDown size={12} />
@@ -648,6 +648,22 @@ export const FloatingBottomToolbar: React.FC = () => {
           className="fixed w-44 max-w-[calc(100vw-16px)] bg-white border border-[#d8dee7] rounded-xl shadow-xl py-1 z-[60] text-xs"
           style={dropdownPosition}
         >
+          <button
+            role="menuitem"
+            onClick={() => { setTool('pen'); setOpenDropdown(null); }}
+            className={MENU_ITEM_CLASS}
+          >
+            <span className="flex items-center gap-2"><PenTool size={14} /><span className="font-medium">Pen</span></span>
+            <span className={MENU_META_CLASS}>P</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => { setTool('node'); setOpenDropdown(null); }}
+            className={MENU_ITEM_CLASS}
+          >
+            <span className="flex items-center gap-2"><MousePointer2 size={14} /><span className="font-medium">Edit nodes</span></span>
+            <span className={MENU_META_CLASS}>Enter</span>
+          </button>
           <button
             role="menuitem"
             onClick={() => {

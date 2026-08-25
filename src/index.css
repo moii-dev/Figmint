@@ -55,6 +55,38 @@
   }
 }
 
+@keyframes figmint-prototype-dissolve {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes figmint-prototype-move-left {
+  from { opacity: 0.35; transform: translateX(48px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes figmint-prototype-move-right {
+  from { opacity: 0.35; transform: translateX(-48px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes figmint-prototype-move-up {
+  from { opacity: 0.35; transform: translateY(48px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes figmint-prototype-move-down {
+  from { opacity: 0.35; transform: translateY(-48px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes figmint-smart-layer {
+  from {
+    opacity: var(--smart-opacity, 0);
+    transform: translate(var(--smart-x, 0), var(--smart-y, 0)) scale(var(--smart-scale-x, 1), var(--smart-scale-y, 1));
+  }
+}
+
 /* Figma UI3 sleek scrollbars */
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;

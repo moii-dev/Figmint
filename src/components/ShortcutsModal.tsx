@@ -36,6 +36,8 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
         { key: 'O', desc: 'Ellipse / Circle' },
         { key: 'L', desc: 'Line Tool' },
         { key: 'Shift + L', desc: 'Arrow Tool' },
+        { key: 'P', desc: 'Pen / Vector Tool' },
+        { key: 'Enter', desc: 'Edit Vector Nodes' },
         { key: 'T', desc: 'Text Tool' },
       ],
     },
@@ -47,6 +49,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
         { key: 'Shift + 1', desc: 'Zoom to Fit' },
         { key: 'Shift + 0', desc: 'Zoom to 100%' },
         { key: 'Ctrl/Cmd + Alt + P', desc: 'Open Presentation Mode' },
+        { key: 'Shift + E', desc: 'Toggle Design / Prototype' },
       ],
     },
     {

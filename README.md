@@ -12,6 +12,9 @@ Figmint is a free, open-source, local-first vector editor inspired by profession
 - Built-in open UI kit with buttons, fields, controls, cards, and navigation elements
 - Multi-selection, group move/resize, layer ordering, and reparenting
 - Undo/redo, keyboard shortcuts, presentation mode, and SVG/PNG/JSON export
+- Prototype connections with click actions, overlays, Back navigation, transitions, and Smart Animate matching
+- Image fills for closed shapes with Fill, Fit, Crop, Tile, clipboard paste, and drag-and-drop replacement
+- Pen/vector node editing, masks, and non-destructive boolean source groups
 - Responsive drawer panels for narrow screens
 
 ## Local development

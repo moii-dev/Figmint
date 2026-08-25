@@ -72,8 +72,20 @@ export function createLocalStorageFallback(
     ...project,
     elements: project.elements.map((element) => {
       const mediaSrc = element.mediaSrc;
-      if (!mediaSrc?.startsWith('data:') || mediaSrc.length <= maxInlineMediaLength) return element;
-      const { mediaSrc: _removedMediaSource, ...lightweightElement } = element;
+      const imageFillSrc = element.imageFill?.src;
+      let lightweightElement = element;
+      if (mediaSrc?.startsWith('data:') && mediaSrc.length > maxInlineMediaLength) {
+        const { mediaSrc: _removedMediaSource, ...withoutMedia } = lightweightElement;
+        lightweightElement = withoutMedia as CanvasElement;
+      }
+      if (imageFillSrc?.startsWith('data:') && imageFillSrc.length > maxInlineMediaLength) {
+        lightweightElement = {
+          ...lightweightElement,
+          imageFill: lightweightElement.imageFill
+            ? { ...lightweightElement.imageFill, src: '' }
+            : undefined,
+        };
+      }
       return lightweightElement;
     }),
   }));

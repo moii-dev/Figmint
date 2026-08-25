@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, ChevronLeft, ChevronRight, Smartphone } from 'lucide-react';
 import { useCanvas } from '../context/CanvasContext';
-import { CanvasElement } from '../types/figma';
+import { CanvasElement, PrototypeInteraction } from '../types/figma';
 import {
   hexToRgba,
   getStarPoints,
@@ -17,37 +17,74 @@ import {
 } from '../utils/gradient';
 import { getCssStrokeOverlayStyle } from '../utils/stroke';
 import { resolveElementTokens } from '../utils/tokens';
+import { getPrototypeStartFrame, matchSmartAnimateLayers } from '../utils/prototype';
+import { ImageFillLayer } from './ImageFillLayer';
 
 export const PresentationMode: React.FC = () => {
-  const { elements, presentationMode, setPresentationMode, tokens } = useCanvas();
+  const { elements, selectedIds, presentationMode, setPresentationMode, tokens } = useCanvas();
 
   // Find all frames
-  const frames = elements.filter((el) => el.type === 'frame');
-  const [activeFrameIndex, setActiveFrameIndex] = useState(0);
+  const frames = elements.filter((el) => el.type === 'frame' && !el.parentId && el.visible);
+  const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
+  const [history, setHistory] = useState<string[]>([]);
+  const [overlayFrameId, setOverlayFrameId] = useState<string | null>(null);
+  const [activeTransition, setActiveTransition] = useState<{ fromFrameId: string; interaction: PrototypeInteraction; nonce: number } | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  const currentFrame = frames[activeFrameIndex] || frames[0];
+  const currentFrame = frames.find((frame) => frame.id === activeFrameId) || frames[0];
+  const activeFrameIndex = currentFrame ? frames.findIndex((frame) => frame.id === currentFrame.id) : 0;
 
   const handlePrev = () => {
     if (frames.length === 0) return;
-    setActiveFrameIndex((prev) => (prev > 0 ? prev - 1 : frames.length - 1));
+    const next = frames[activeFrameIndex > 0 ? activeFrameIndex - 1 : frames.length - 1];
+    if (next) setActiveFrameId(next.id);
   };
 
   const handleNext = () => {
     if (frames.length === 0) return;
-    setActiveFrameIndex((prev) => (prev < frames.length - 1 ? prev + 1 : 0));
+    const next = frames[activeFrameIndex < frames.length - 1 ? activeFrameIndex + 1 : 0];
+    if (next) setActiveFrameId(next.id);
+  };
+
+  const executeInteraction = (interaction: PrototypeInteraction) => {
+    if (interaction.action === 'close-overlay') {
+      setOverlayFrameId(null);
+      return;
+    }
+    if (interaction.action === 'back') {
+      const previous = history.at(-1);
+      if (previous) {
+        setHistory((items) => items.slice(0, -1));
+        setActiveFrameId(previous);
+      }
+      return;
+    }
+    const destination = frames.find((frame) => frame.id === interaction.destinationFrameId);
+    if (!destination || !currentFrame) return;
+    if (interaction.action === 'open-overlay') {
+      setOverlayFrameId(destination.id);
+      return;
+    }
+    setHistory((items) => [...items, currentFrame.id]);
+    setActiveTransition({ fromFrameId: currentFrame.id, interaction, nonce: Date.now() });
+    setActiveFrameId(destination.id);
   };
 
   useEffect(() => {
     if (!presentationMode) return;
+    const start = getPrototypeStartFrame(elements, selectedIds);
+    setActiveFrameId(start?.id || null);
+    setHistory([]);
+    setOverlayFrameId(null);
+    setActiveTransition(null);
     const previouslyFocused = document.activeElement as HTMLElement | null;
     closeButtonRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setPresentationMode(false);
       else if (event.key === 'ArrowLeft' && frames.length > 0) {
-        setActiveFrameIndex((prev) => (prev > 0 ? prev - 1 : frames.length - 1));
+        handlePrev();
       } else if (event.key === 'ArrowRight' && frames.length > 0) {
-        setActiveFrameIndex((prev) => (prev < frames.length - 1 ? prev + 1 : 0));
+        handleNext();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -55,7 +92,7 @@ export const PresentationMode: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       previouslyFocused?.focus();
     };
-  }, [frames.length, presentationMode, setPresentationMode]);
+  }, [presentationMode, setPresentationMode]);
 
   if (!presentationMode) return null;
 
@@ -63,6 +100,18 @@ export const PresentationMode: React.FC = () => {
   const frameChildren = currentFrame
     ? elements.filter((el) => el.parentId === currentFrame.id && el.visible)
     : [];
+  const smartMatches = currentFrame && activeTransition?.interaction.transition === 'smart-animate'
+    ? matchSmartAnimateLayers(elements, activeTransition.fromFrameId, currentFrame.id)
+    : new Map<string, CanvasElement>();
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const transitionAnimation = (() => {
+    if (!activeTransition || reducedMotion || activeTransition.interaction.transition === 'instant' || activeTransition.interaction.transition === 'smart-animate') return undefined;
+    const interaction = activeTransition.interaction;
+    const name = interaction.transition === 'dissolve'
+      ? 'figmint-prototype-dissolve'
+      : `figmint-prototype-move-${interaction.direction}`;
+    return `${name} ${interaction.durationMs}ms ${interaction.easing} both`;
+  })();
 
   const renderChildElement = (el: CanvasElement) => {
     const rawElement = el;
@@ -70,8 +119,8 @@ export const PresentationMode: React.FC = () => {
     // Children already store coordinates local to their frame.
     const relX = el.x;
     const relY = el.y;
-    const fillStyle = hexToRgba(el.fill, el.fillOpacity);
-    const fillCss = getElementCssFill(el);
+    const fillStyle = el.imageFill ? 'transparent' : hexToRgba(el.fill, el.fillOpacity);
+    const fillCss: React.CSSProperties = el.imageFill ? { backgroundColor: 'transparent' } : getElementCssFill(el);
     const visibleGradients = getVisibleGradients(el);
     const svgGradients = [...visibleGradients].reverse();
     const strokeStyle = el.strokeWidth > 0 ? hexToRgba(el.stroke, el.strokeOpacity) : 'transparent';
@@ -82,11 +131,30 @@ export const PresentationMode: React.FC = () => {
       const s = el.shadow;
       boxShadowStyle = `${s.x}px ${s.y}px ${s.blur}px ${s.spread}px ${hexToRgba(s.color, s.opacity)}`;
     }
+    const smartSource = smartMatches.get(rawElement.id);
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const smartStyle = smartSource && activeTransition && !reducedMotion
+      ? {
+          '--smart-x': `${smartSource.x - rawElement.x}px`,
+          '--smart-y': `${smartSource.y - rawElement.y}px`,
+          '--smart-scale-x': String(smartSource.width / Math.max(1, rawElement.width)),
+          '--smart-scale-y': String(smartSource.height / Math.max(1, rawElement.height)),
+          '--smart-opacity': String(smartSource.opacity),
+          animation: `figmint-smart-layer ${activeTransition.interaction.durationMs}ms ${activeTransition.interaction.easing} both`,
+        } as React.CSSProperties
+      : undefined;
 
     return (
       <div
         key={el.id}
-        className={`absolute select-none ${el.type === 'video' ? 'pointer-events-auto' : 'pointer-events-none'}`}
+        data-prototype-hotspot-id={rawElement.id}
+        onClick={(event) => {
+          const interaction = rawElement.interactions?.find((item) => item.trigger === 'click');
+          if (!interaction) return;
+          event.stopPropagation();
+          executeInteraction(interaction);
+        }}
+        className={`absolute select-none ${(el.type === 'video' || rawElement.interactions?.length) ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}`}
         style={{
           left: `${relX}px`,
           top: `${relY}px`,
@@ -94,8 +162,10 @@ export const PresentationMode: React.FC = () => {
           height: `${el.height}px`,
           transform: `rotate(${el.rotation || 0}deg)`,
           opacity: el.opacity,
+          ...smartStyle,
         }}
       >
+        <ImageFillLayer element={el} />
         {(['rectangle', 'frame', 'component', 'instance'].includes(el.type)) && (
           <div
             className="relative w-full h-full"
@@ -279,6 +349,19 @@ export const PresentationMode: React.FC = () => {
           </svg>
         )}
 
+        {el.type === 'vector' && el.vectorPath?.length && (
+          <svg className="h-full w-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
+            <path
+              d={`${el.vectorPath.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x * el.width} ${point.y * el.height}`).join(' ')}${el.vectorClosed ? ' Z' : ''}`}
+              fill={el.vectorClosed ? fillStyle : 'none'}
+              stroke={el.strokeWidth > 0 ? strokeStyle : fillStyle}
+              strokeWidth={Math.max(1, el.strokeWidth || 2)}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          </svg>
+        )}
+
         {el.type === 'arrow' && (
           <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${el.width} ${el.height}`}>
             {(() => {
@@ -352,7 +435,12 @@ export const PresentationMode: React.FC = () => {
       {currentFrame ? (
         <div className="relative max-h-[85vh] max-w-[90vw] overflow-auto flex items-center justify-center p-6">
           <div
+            key={`${currentFrame.id}-${activeTransition?.nonce || 0}`}
             id={`presentation-frame-${currentFrame.id}`}
+            onClick={() => {
+              const interaction = currentFrame.interactions?.find((item) => item.trigger === 'click');
+              if (interaction) executeInteraction(interaction);
+            }}
             className="relative shadow-2xl transition-all duration-300"
             style={{
               width: `${currentFrame.width}px`,
@@ -365,15 +453,17 @@ export const PresentationMode: React.FC = () => {
                 )
               )})`,
               transformOrigin: 'center center',
+              animation: transitionAnimation,
             }}
           >
             <div
               className="absolute inset-0 overflow-hidden"
               style={{
-                ...getElementCssFill(currentFrame),
+                ...(currentFrame.imageFill ? { backgroundColor: 'transparent' } : getElementCssFill(currentFrame)),
                 borderRadius: `${currentFrame.cornerRadius || 0}px`,
               }}
             >
+              <ImageFillLayer element={currentFrame} />
               {frameChildren.map(renderChildElement)}
             </div>
             {currentFrame.strokeWidth > 0 && (
@@ -384,6 +474,28 @@ export const PresentationMode: React.FC = () => {
                 )}
               />
             )}
+            {overlayFrameId && (() => {
+              const overlay = frames.find((frame) => frame.id === overlayFrameId);
+              if (!overlay) return null;
+              const children = elements.filter((element) => element.parentId === overlay.id && element.visible);
+              return (
+                <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/25 p-4" onClick={() => setOverlayFrameId(null)}>
+                  <div
+                    className="relative overflow-hidden shadow-2xl"
+                    onClick={(event) => event.stopPropagation()}
+                    style={{
+                      width: `${Math.min(overlay.width, currentFrame.width * 0.9)}px`,
+                      height: `${Math.min(overlay.height, currentFrame.height * 0.9)}px`,
+                      ...getElementCssFill(overlay),
+                      borderRadius: `${overlay.cornerRadius || 0}px`,
+                      animation: reducedMotion ? undefined : 'figmint-prototype-dissolve 160ms ease-out both',
+                    }}
+                  >
+                    {children.map(renderChildElement)}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       ) : (
