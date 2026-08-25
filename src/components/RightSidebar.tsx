@@ -312,7 +312,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ onOpenShortcuts, isO
 
             {interactions.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-4 text-center text-[10px] leading-relaxed text-gray-500">
-                Drag the blue handle to a frame, or press + to create an interaction.
+                Drag one of the four blue points to any layer in another frame, or press + to create an interaction.
               </div>
             ) : interactions.map((interaction) => {
               const missingDestination = interaction.destinationFrameId

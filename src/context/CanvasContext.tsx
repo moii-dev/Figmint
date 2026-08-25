@@ -137,6 +137,9 @@ function cloneElementTree(
         destinationFrameId: interaction.destinationFrameId
           ? idMap.get(interaction.destinationFrameId) || interaction.destinationFrameId
           : undefined,
+        destinationElementId: interaction.destinationElementId
+          ? idMap.get(interaction.destinationElementId) || interaction.destinationElementId
+          : undefined,
       })),
       x: shouldOffset ? element.x + offset : element.x,
       y: shouldOffset ? element.y + offset : element.y,
@@ -275,6 +278,13 @@ function normalizeImportedElements(value: unknown): CanvasElement[] | null {
               trigger: 'click' as const,
               action,
               destinationFrameId: typeof interaction.destinationFrameId === 'string' ? interaction.destinationFrameId : undefined,
+              destinationElementId: typeof interaction.destinationElementId === 'string' ? interaction.destinationElementId : undefined,
+              sourceAnchor: ['top', 'right', 'bottom', 'left'].includes(interaction.sourceAnchor || '')
+                ? interaction.sourceAnchor as PrototypeInteraction['sourceAnchor']
+                : undefined,
+              destinationAnchor: ['top', 'right', 'bottom', 'left'].includes(interaction.destinationAnchor || '')
+                ? interaction.destinationAnchor as PrototypeInteraction['destinationAnchor']
+                : undefined,
               transition,
               direction: ['left', 'right', 'up', 'down'].includes(interaction.direction || '')
                 ? interaction.direction as PrototypeInteraction['direction']

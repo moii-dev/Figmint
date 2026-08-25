@@ -73,12 +73,16 @@ export type PrototypeAction = 'navigate-to' | 'back' | 'open-overlay' | 'close-o
 export type PrototypeTransition = 'instant' | 'dissolve' | 'move' | 'push' | 'smart-animate';
 export type PrototypeDirection = 'left' | 'right' | 'up' | 'down';
 export type PrototypeEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+export type PrototypeConnectionSide = 'top' | 'right' | 'bottom' | 'left';
 
 export interface PrototypeInteraction {
   id: string;
   trigger: 'click';
   action: PrototypeAction;
   destinationFrameId?: string;
+  destinationElementId?: string;
+  sourceAnchor?: PrototypeConnectionSide;
+  destinationAnchor?: PrototypeConnectionSide;
   transition: PrototypeTransition;
   direction: PrototypeDirection;
   easing: PrototypeEasing;

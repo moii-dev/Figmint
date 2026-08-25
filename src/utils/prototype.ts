@@ -1,4 +1,12 @@
-import type { CanvasElement, PrototypeInteraction } from '../types/figma';
+import type {
+  CanvasElement,
+  Point,
+  PrototypeConnectionSide,
+  PrototypeInteraction,
+  Rect,
+} from '../types/figma';
+
+export const PROTOTYPE_CONNECTION_SIDES: PrototypeConnectionSide[] = ['top', 'right', 'bottom', 'left'];
 
 export const DEFAULT_PROTOTYPE_INTERACTION: Omit<PrototypeInteraction, 'id'> = {
   trigger: 'click',
@@ -19,6 +27,37 @@ export function createPrototypeInteraction(destinationFrameId?: string): Prototy
     id: `interaction-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     destinationFrameId,
   };
+}
+
+export function getConnectionAnchorPoint(rect: Rect, side: PrototypeConnectionSide): Point {
+  if (side === 'top') return { x: rect.x + rect.width / 2, y: rect.y };
+  if (side === 'bottom') return { x: rect.x + rect.width / 2, y: rect.y + rect.height };
+  if (side === 'left') return { x: rect.x, y: rect.y + rect.height / 2 };
+  return { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
+}
+
+export function getNearestConnectionSide(rect: Rect, point: Point): PrototypeConnectionSide {
+  const distances: Array<[PrototypeConnectionSide, number]> = [
+    ['top', Math.abs(point.y - rect.y)],
+    ['right', Math.abs(point.x - (rect.x + rect.width))],
+    ['bottom', Math.abs(point.y - (rect.y + rect.height))],
+    ['left', Math.abs(point.x - rect.x)],
+  ];
+  return distances.reduce((nearest, candidate) => candidate[1] < nearest[1] ? candidate : nearest)[0];
+}
+
+export function getPrototypeDestinationFrame(
+  element: CanvasElement,
+  elements: CanvasElement[]
+): CanvasElement | undefined {
+  let current: CanvasElement | undefined = element;
+  const visited = new Set<string>();
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    if (current.type === 'frame' && !current.parentId) return current;
+    current = current.parentId ? elements.find((item) => item.id === current!.parentId) : undefined;
+  }
+  return undefined;
 }
 
 export function getTopLevelFrames(elements: CanvasElement[]): CanvasElement[] {

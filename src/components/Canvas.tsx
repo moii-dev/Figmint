@@ -1,6 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useCanvas } from '../context/CanvasContext';
-import { CanvasElement, TransformHandle, Point, Rect, SnapGuide } from '../types/figma';
+import {
+  CanvasElement,
+  TransformHandle,
+  Point,
+  PrototypeConnectionSide,
+  Rect,
+  SnapGuide,
+} from '../types/figma';
 import { TransformOverlay } from './TransformOverlay';
 import { Rulers } from './Rulers';
 import { FloatingBottomToolbar } from './FloatingBottomToolbar';
@@ -30,6 +37,13 @@ import {
 import { getCssStrokeOverlayStyle, getEllipseStrokeGeometry } from '../utils/stroke';
 import { resolveElementTokens } from '../utils/tokens';
 import { ImageFillLayer } from './ImageFillLayer';
+import {
+  createPrototypeInteraction,
+  getConnectionAnchorPoint,
+  getNearestConnectionSide,
+  getPrototypeDestinationFrame,
+  PROTOTYPE_CONNECTION_SIDES,
+} from '../utils/prototype';
 
 const CREATION_TOOLS = ['frame', 'rectangle', 'ellipse', 'triangle', 'polygon', 'diamond', 'star', 'text', 'line', 'arrow', 'pen'];
 const CONTAINER_TYPES: CanvasElement['type'][] = ['frame', 'component', 'instance'];
@@ -57,6 +71,50 @@ interface DragState {
   handle?: TransformHandle;
   groupBounds?: Rect;
   cornerIndex?: number;
+}
+
+interface PrototypeConnectionDraft {
+  sourceId: string;
+  sourceAnchor: PrototypeConnectionSide;
+  pointer: Point;
+  targetElementId?: string;
+  targetAnchor?: PrototypeConnectionSide;
+  destinationFrameId?: string;
+}
+
+const PROTOTYPE_ANCHOR_POSITION: Record<PrototypeConnectionSide, React.CSSProperties> = {
+  top: { left: '50%', top: 0 },
+  right: { left: '100%', top: '50%' },
+  bottom: { left: '50%', top: '100%' },
+  left: { left: 0, top: '50%' },
+};
+
+const PROTOTYPE_OPPOSITE_SIDE: Record<PrototypeConnectionSide, PrototypeConnectionSide> = {
+  top: 'bottom',
+  right: 'left',
+  bottom: 'top',
+  left: 'right',
+};
+
+function getPrototypeCurvePath(
+  from: Point,
+  sourceSide: PrototypeConnectionSide,
+  to: Point,
+  destinationSide: PrototypeConnectionSide
+): string {
+  const vectors: Record<PrototypeConnectionSide, Point> = {
+    top: { x: 0, y: -1 },
+    right: { x: 1, y: 0 },
+    bottom: { x: 0, y: 1 },
+    left: { x: -1, y: 0 },
+  };
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  const bend = Math.max(36, Math.min(180, distance * 0.42));
+  const sourceVector = vectors[sourceSide];
+  const destinationVector = vectors[destinationSide];
+  const c1 = { x: from.x + sourceVector.x * bend, y: from.y + sourceVector.y * bend };
+  const c2 = { x: to.x + destinationVector.x * bend, y: to.y + destinationVector.y * bend };
+  return `M ${from.x} ${from.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${to.x} ${to.y}`;
 }
 
 function resizeRect(
@@ -147,7 +205,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
   // Interaction State
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
-  const [prototypeConnectionSourceId, setPrototypeConnectionSourceId] = useState<string | null>(null);
+  const [prototypeConnectionDraft, setPrototypeConnectionDraft] = useState<PrototypeConnectionDraft | null>(null);
 
   // Marquee Selection Box State
   const [marqueeBox, setMarqueeBox] = useState<Rect | null>(null);
@@ -218,31 +276,88 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
     [pan, zoom, rulerOffset]
   );
 
+  const resolvePrototypeTarget = useCallback((point: Point, sourceId: string) => {
+    const source = elements.find((element) => element.id === sourceId);
+    const sourceFrame = source ? getPrototypeDestinationFrame(source, elements) : undefined;
+    const depthOf = (element: CanvasElement) => {
+      let depth = 0;
+      let parentId = element.parentId;
+      const visited = new Set<string>();
+      while (parentId && !visited.has(parentId)) {
+        visited.add(parentId);
+        depth += 1;
+        parentId = elements.find((item) => item.id === parentId)?.parentId;
+      }
+      return depth;
+    };
+
+    const candidates = elements.flatMap((element, index) => {
+      if (!element.visible || element.locked || element.id === sourceId) return [];
+      const rect = getWorldRect(element, elements);
+      if (point.x < rect.x || point.x > rect.x + rect.width || point.y < rect.y || point.y > rect.y + rect.height) return [];
+      const destinationFrame = getPrototypeDestinationFrame(element, elements);
+      if (!destinationFrame || destinationFrame.id === sourceFrame?.id) return [];
+      return [{ element, rect, destinationFrame, depth: depthOf(element), index }];
+    });
+
+    candidates.sort((a, b) => b.depth - a.depth || a.rect.width * a.rect.height - b.rect.width * b.rect.height || b.index - a.index);
+    const target = candidates[0];
+    if (!target) return undefined;
+    return {
+      element: target.element,
+      destinationFrame: target.destinationFrame,
+      anchor: getNearestConnectionSide(target.rect, point),
+    };
+  }, [elements]);
+
   useEffect(() => {
-    if (!prototypeConnectionSourceId) return;
+    if (!prototypeConnectionDraft) return;
+    const sourceId = prototypeConnectionDraft.sourceId;
+    const sourceAnchor = prototypeConnectionDraft.sourceAnchor;
+
+    const handleConnectionMove = (event: PointerEvent) => {
+      const point = screenToWorld(event.clientX, event.clientY);
+      const target = resolvePrototypeTarget(point, sourceId);
+      setPrototypeConnectionDraft((current) => current?.sourceId === sourceId ? {
+        ...current,
+        pointer: point,
+        targetElementId: target?.element.id,
+        targetAnchor: target?.anchor,
+        destinationFrameId: target?.destinationFrame.id,
+      } : current);
+    };
     const handleConnectionEnd = (event: PointerEvent) => {
       const point = screenToWorld(event.clientX, event.clientY);
-      const targetFrame = elements
-        .filter((element) => element.type === 'frame' && !element.parentId)
-        .find((frame) => {
-          const rect = getWorldRect(frame, elements);
-          return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
-        });
-      const source = elements.find((element) => element.id === prototypeConnectionSourceId);
-      if (source && targetFrame && source.id !== targetFrame.id) {
+      const target = resolvePrototypeTarget(point, sourceId);
+      const source = elements.find((element) => element.id === sourceId);
+      if (source && target) {
         updateElement(source.id, {
           interactions: [...(source.interactions || []), {
-            id: `interaction-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            trigger: 'click', action: 'navigate-to', destinationFrameId: targetFrame.id,
-            transition: 'smart-animate', direction: 'left', easing: 'ease-in-out', durationMs: 300,
+            ...createPrototypeInteraction(target.destinationFrame.id),
+            destinationElementId: target.element.id,
+            sourceAnchor,
+            destinationAnchor: target.anchor,
           }],
         });
       }
-      setPrototypeConnectionSourceId(null);
+      setPrototypeConnectionDraft(null);
     };
+    const handleConnectionCancel = () => setPrototypeConnectionDraft(null);
+    const handleConnectionKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleConnectionCancel();
+    };
+
+    window.addEventListener('pointermove', handleConnectionMove);
     window.addEventListener('pointerup', handleConnectionEnd, { once: true });
-    return () => window.removeEventListener('pointerup', handleConnectionEnd);
-  }, [elements, prototypeConnectionSourceId, screenToWorld, updateElement]);
+    window.addEventListener('pointercancel', handleConnectionCancel, { once: true });
+    window.addEventListener('keydown', handleConnectionKeyDown);
+    return () => {
+      window.removeEventListener('pointermove', handleConnectionMove);
+      window.removeEventListener('pointerup', handleConnectionEnd);
+      window.removeEventListener('pointercancel', handleConnectionCancel);
+      window.removeEventListener('keydown', handleConnectionKeyDown);
+    };
+  }, [elements, prototypeConnectionDraft?.sourceAnchor, prototypeConnectionDraft?.sourceId, resolvePrototypeTarget, screenToWorld, updateElement]);
 
   // Canvas Mouse Wheel for Pan & Zoom (Figma-style)
   const handleWheel = useCallback(
@@ -649,21 +764,46 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
     return 'default';
   };
 
-  const renderPrototypeHandle = (element: CanvasElement, visible: boolean) => {
+  const renderPrototypeHandles = (element: CanvasElement, visible: boolean) => {
     if (appMode !== 'prototype' || !visible) return null;
+    const isDraftTarget = prototypeConnectionDraft?.targetElementId === element.id;
+    const isDraftSource = prototypeConnectionDraft?.sourceId === element.id;
     return (
-      <button
-        type="button"
-        aria-label="Create prototype connection"
-        title="Drag to a frame to create an interaction"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setPrototypeConnectionSourceId(element.id);
-        }}
-        className="absolute -right-4 top-1/2 z-50 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-white bg-[#0d99ff] shadow-md transition-transform duration-150 hover:scale-125"
-        style={{ transformOrigin: 'center' }}
-      />
+      <div className="pointer-events-none absolute inset-0 z-50" aria-label="Prototype connection points">
+        {PROTOTYPE_CONNECTION_SIDES.map((side) => {
+          const isActive = (isDraftSource && prototypeConnectionDraft.sourceAnchor === side)
+            || (isDraftTarget && prototypeConnectionDraft.targetAnchor === side);
+          const isTargetPoint = isDraftTarget;
+          return (
+            <span key={side} className="absolute h-0 w-0" style={PROTOTYPE_ANCHOR_POSITION[side]}>
+              <button
+                type="button"
+                aria-label={`${side} prototype connection point`}
+                title={isTargetPoint ? `Connect to ${side}` : `Drag from ${side}`}
+                data-prototype-anchor={side}
+                onPointerDown={isTargetPoint ? undefined : (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const rect = getWorldRect(element, elements);
+                  setPrototypeConnectionDraft({
+                    sourceId: element.id,
+                    sourceAnchor: side,
+                    pointer: getConnectionAnchorPoint(rect, side),
+                  });
+                }}
+                className={`absolute h-3.5 w-3.5 rounded-full border-2 shadow-sm transition-[transform,background-color,opacity] duration-150 ${
+                  isTargetPoint ? 'pointer-events-none' : 'pointer-events-auto cursor-crosshair'
+                } ${isActive ? 'border-white bg-[#0d99ff]' : 'border-[#0d99ff] bg-white hover:bg-[#0d99ff]'}`}
+                style={{
+                  transform: `translate(-50%, -50%) scale(${(isActive ? 1.25 : 1) / zoom})`,
+                  transformOrigin: 'center',
+                  opacity: isTargetPoint && !isActive ? 0.38 : 1,
+                }}
+              />
+            </span>
+          );
+        })}
+      </div>
     );
   };
 
@@ -1137,7 +1277,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             isResizing={dragState?.type === 'resize'}
           />
         )}
-        {renderPrototypeHandle(el, isSingleSelected && !isEditing)}
+        {renderPrototypeHandles(el, (isSingleSelected && !isEditing) || prototypeConnectionDraft?.targetElementId === el.id)}
       </div>
     );
   };
@@ -1239,7 +1379,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
               isResizing={dragState?.type === 'resize'}
             />
           )}
-          {renderPrototypeHandle(el, isSingleSelected)}
+          {renderPrototypeHandles(el, isSingleSelected || prototypeConnectionDraft?.targetElementId === el.id)}
         </div>
       );
     }
@@ -1284,7 +1424,7 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
             isResizing={dragState?.type === 'resize'}
           />
         )}
-        {renderPrototypeHandle(el, isSingleSelected && !isEditing)}
+        {renderPrototypeHandles(el, (isSingleSelected && !isEditing) || prototypeConnectionDraft?.targetElementId === el.id)}
       </div>
     );
   };
@@ -1367,22 +1507,48 @@ export const Canvas: React.FC<CanvasProps> = ({ hideFloatingToolbar = false }) =
         {appMode === 'prototype' && (
           <svg className="pointer-events-none absolute left-0 top-0 z-30 h-px w-px overflow-visible" aria-label="Prototype connections">
             {elements.flatMap((source) => (source.interactions || []).flatMap((interaction) => {
-              const target = elements.find((element) => element.id === interaction.destinationFrameId && element.type === 'frame' && !element.parentId);
+              const target = elements.find((element) => element.id === interaction.destinationElementId)
+                || elements.find((element) => element.id === interaction.destinationFrameId && element.type === 'frame' && !element.parentId);
               if (!target) return [];
               const from = getWorldRect(source, elements);
               const to = getWorldRect(target, elements);
-              const x1 = from.x + from.width;
-              const y1 = from.y + from.height / 2;
-              const x2 = to.x;
-              const y2 = to.y + Math.min(36, to.height / 2);
-              const bend = Math.max(48, Math.abs(x2 - x1) * 0.45);
+              const sourceSide = interaction.sourceAnchor || 'right';
+              const destinationSide = interaction.destinationAnchor || 'left';
+              const start = getConnectionAnchorPoint(from, sourceSide);
+              const end = getConnectionAnchorPoint(to, destinationSide);
               return [
                 <g key={`${source.id}-${interaction.id}`}>
-                  <path d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`} fill="none" stroke="#0d99ff" strokeWidth={Math.max(1.5, 2 / zoom)} />
-                  <circle cx={x2} cy={y2} r={Math.max(3, 4 / zoom)} fill="#0d99ff" />
+                  <path d={getPrototypeCurvePath(start, sourceSide, end, destinationSide)} fill="none" stroke="#0d99ff" strokeWidth={Math.max(1.5, 2 / zoom)} />
+                  <circle cx={start.x} cy={start.y} r={Math.max(2.5, 3.5 / zoom)} fill="#0d99ff" />
+                  <circle cx={end.x} cy={end.y} r={Math.max(3, 4 / zoom)} fill="#0d99ff" />
                 </g>,
               ];
             }))}
+            {prototypeConnectionDraft && (() => {
+              const source = elements.find((element) => element.id === prototypeConnectionDraft.sourceId);
+              if (!source) return null;
+              const start = getConnectionAnchorPoint(getWorldRect(source, elements), prototypeConnectionDraft.sourceAnchor);
+              const target = prototypeConnectionDraft.targetElementId
+                ? elements.find((element) => element.id === prototypeConnectionDraft.targetElementId)
+                : undefined;
+              const destinationSide = prototypeConnectionDraft.targetAnchor
+                || PROTOTYPE_OPPOSITE_SIDE[prototypeConnectionDraft.sourceAnchor];
+              const end = target && prototypeConnectionDraft.targetAnchor
+                ? getConnectionAnchorPoint(getWorldRect(target, elements), prototypeConnectionDraft.targetAnchor)
+                : prototypeConnectionDraft.pointer;
+              return (
+                <g aria-label="Prototype connection preview">
+                  <path
+                    d={getPrototypeCurvePath(start, prototypeConnectionDraft.sourceAnchor, end, destinationSide)}
+                    fill="none"
+                    stroke="#0d99ff"
+                    strokeDasharray={target ? undefined : `${Math.max(3, 5 / zoom)} ${Math.max(2, 4 / zoom)}`}
+                    strokeWidth={Math.max(1.75, 2.25 / zoom)}
+                  />
+                  <circle cx={end.x} cy={end.y} r={Math.max(3.5, 4.5 / zoom)} fill="#0d99ff" />
+                </g>
+              );
+            })()}
           </svg>
         )}
         {rootElements.map((el, layerIndex) => renderRootElement(el, layerIndex))}

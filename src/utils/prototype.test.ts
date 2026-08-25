@@ -4,7 +4,10 @@ import type { CanvasElement } from '../types/figma';
 import {
   clampPrototypeDuration,
   createPrototypeInteraction,
+  getConnectionAnchorPoint,
   getMissingDestinationIds,
+  getNearestConnectionSide,
+  getPrototypeDestinationFrame,
   getPrototypeStartFrame,
   matchSmartAnimateLayers,
 } from './prototype';
@@ -45,4 +48,24 @@ test('missing destinations remain detectable instead of being silently removed',
     interactions: [{ ...createPrototypeInteraction('deleted-frame'), id: 'go' }],
   };
   assert.deepEqual([...getMissingDestinationIds([frame('existing'), hotspot])], ['deleted-frame']);
+});
+
+test('connection anchors resolve all four sides and choose the side nearest the pointer', () => {
+  const rect = { x: 100, y: 50, width: 200, height: 120 };
+  assert.deepEqual(getConnectionAnchorPoint(rect, 'top'), { x: 200, y: 50 });
+  assert.deepEqual(getConnectionAnchorPoint(rect, 'right'), { x: 300, y: 110 });
+  assert.deepEqual(getConnectionAnchorPoint(rect, 'bottom'), { x: 200, y: 170 });
+  assert.deepEqual(getConnectionAnchorPoint(rect, 'left'), { x: 100, y: 110 });
+  assert.equal(getNearestConnectionSide(rect, { x: 205, y: 54 }), 'top');
+  assert.equal(getNearestConnectionSide(rect, { x: 296, y: 112 }), 'right');
+  assert.equal(getNearestConnectionSide(rect, { x: 190, y: 168 }), 'bottom');
+  assert.equal(getNearestConnectionSide(rect, { x: 102, y: 120 }), 'left');
+});
+
+test('a target layer resolves to its top-level destination frame', () => {
+  const screen = frame('screen');
+  const group = { ...frame('group'), type: 'rectangle' as const, parentId: screen.id };
+  const button = { ...frame('button'), type: 'rectangle' as const, parentId: group.id };
+  assert.equal(getPrototypeDestinationFrame(button, [screen, group, button])?.id, screen.id);
+  assert.equal(getPrototypeDestinationFrame(screen, [screen, group, button])?.id, screen.id);
 });
